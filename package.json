@@ -1,0 +1,49 @@
+{
+  "name": "selva",
+  "displayName": "Selva",
+  "description": "Agentic YAML workbench — visual config editing, AI agent with Python execution, self-extending tool ecosystem.",
+  "version": "0.2.0",
+  "publisher": "dfaroughy",
+  "license": "MIT",
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Other", "Visualization", "Data Science", "Machine Learning"],
+  "keywords": ["yaml", "config", "agent", "machine learning", "dashboard", "experiment", "data science", "jupyter", "matplotlib"],
+  "icon": "media/logo.png",
+  "galleryBanner": { "color": "#0d1117", "theme": "dark" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dfaroughy/selva"
+  },
+  "bugs": {
+    "url": "https://github.com/dfaroughy/selva/issues"
+  },
+  "scripts": {
+    "test": "node test/json-extract.test.js"
+  },
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "selva.open",
+        "title": "Selva",
+        "icon": "$(dashboard)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "selva.open",
+        "key": "ctrl+shift+j",
+        "mac": "cmd+shift+j"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "selva.open",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

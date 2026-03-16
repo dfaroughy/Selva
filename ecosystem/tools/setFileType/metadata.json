@@ -1,0 +1,13 @@
+{
+  "name": "setFileType",
+  "description": "Reclassify a YAML file as 'config' (editable parameters) or 'data' (read-only datasets).",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file": { "type": "string", "description": "YAML filename" },
+      "fileType": { "type": "string", "enum": ["config", "data"], "description": "Classification type" }
+    },
+    "required": ["file", "fileType"]
+  }
+}

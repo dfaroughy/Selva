@@ -1,0 +1,12 @@
+{
+  "name": "get_file_schema",
+  "description": "Get the full schema (fields, values, types) and raw YAML for a specific file. Use this when you need to inspect a file's contents for editing, analysis, or plotting.",
+  "context": "extension",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file": { "type": "string", "description": "Exact YAML filename" }
+    },
+    "required": ["file"]
+  }
+}

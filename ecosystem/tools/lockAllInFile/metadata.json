@@ -1,0 +1,10 @@
+{
+  "name": "lockAllInFile",
+  "description": "Lock every field value in a file (make entire file read-only).",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "file": { "type": "string" } },
+    "required": ["file"]
+  }
+}

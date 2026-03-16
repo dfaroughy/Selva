@@ -1,0 +1,18 @@
+{
+  "name": "propose_tool",
+  "description": "Create a new reusable dashboard tool. Use this when no existing tool can accomplish the task. The tool will be saved to ~/.selva/ecosystem/tools/ and available in all future sessions. For webview tools, write a JS function receiving (input) with access to state, normalizePath, renderEditors, etc. For python tools, write code that reads JSON from stdin.",
+  "context": "extension",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": { "type": "string", "description": "Tool name (snake_case)" },
+      "description": { "type": "string", "description": "What the tool does" },
+      "context": { "type": "string", "enum": ["webview", "extension"], "description": "Where the tool runs: webview (dashboard state manipulation) or extension (Python/system)" },
+      "inputSchema": { "type": "object", "description": "JSON schema for tool input parameters" },
+      "code": { "type": "string", "description": "Tool code. For webview: JS IIFE '(function(input) { ... })'. For extension: Python code." },
+      "origin_query": { "type": "string", "description": "The user query that prompted this tool creation" },
+      "reasoning": { "type": "string", "description": "Why this tool was needed and how it works" }
+    },
+    "required": ["name", "description", "context", "inputSchema", "code"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "setValue",
+  "description": "Set a YAML config field value. Preserves original type (number→number, boolean→boolean).",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file": { "type": "string", "description": "Exact YAML filename from FILES IN SCOPE" },
+      "path": { "type": "array", "items": {}, "description": "JSON path array of keys/indices to the field" },
+      "value": { "description": "New value to set" }
+    },
+    "required": ["file", "path", "value"]
+  }
+}

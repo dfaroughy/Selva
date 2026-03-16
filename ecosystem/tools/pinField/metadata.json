@@ -1,0 +1,10 @@
+{
+  "name": "pinField",
+  "description": "Pin a field to the pinned panel for quick access and monitoring.",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "file": { "type": "string" }, "path": { "type": "array", "items": {} } },
+    "required": ["file", "path"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "unpinField",
+  "description": "Remove a field from the pinned panel.",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "file": { "type": "string" }, "path": { "type": "array", "items": {} } },
+    "required": ["file", "path"]
+  }
+}

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}} https://fonts.googleapis.com 'unsafe-inline'; font-src {{CSP_SOURCE}} https://fonts.gstatic.com; script-src 'nonce-{{NONCE}}' 'unsafe-eval'; img-src data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Selva</title>
+  <link rel="stylesheet" href="{{CSS_URI}}">
+  <link rel="stylesheet" href="{{KATEX_CSS_URI}}">
+</head>
+<body>
+  <div id="sticky-top">
+    <header>
+      <div class="header-left">
+        <svg class="selva-logo" viewBox="0 0 2048 797" xmlns="http://www.w3.org/2000/svg">
+          <path d="m340 175 15 1 11 4 12 7 10 10 10 15 13 26 7 3 22 4 24 8 13 7 9 8 6 10 4 13v11l-4 11-7 9-8 6-7 2h-26l-11-6-8-8-7-12-5-13-10-38-1-3-8-2-27-4h-21l-21 3-26 4-21 7-1 3v31l3 13 6 15 8 14 7 9 4 5 14 11 13 8 16 9 3 1h7l13-5 20-6 28-8 30-5h24l21 5 16 7 10 9 6 7 6 15 1 7v13l-2 10-4 14 4 4 6 4 9 9 7 11 4 14v9l-4 15-7 12-12 10-14 7-30 10-28 4-9 5-14 12-12 11-16 12-16 8-9 3-12 2h-14l-20-3-15-8-16-10-13-13-7-10-6-9-17-5-13-4-20-7-12-5-11-6-10-8-7-7-7-12-3-9v-12l4-11 8-10 11-7 16-4 15 2 10 4 8 7 7 9 8 17 6 18 5 17 6 16 4 6 1 1 41 3 20 1h45l44-3 9-1 7-7 7-8 9-11 13-18 13-21 8-16 5-9v-2l-19-9-17-7-17-6-12-3-11-4-8-2-11-4-12-3-22-7-18-6-5-3-2-1h-12l-21 6-21 5-24 2h-26l-14-1-9-4-11-6-13-10-11-14-7-16-1-6v-11l4-16 5-13 9-14 11-12 7-7 17-12 15-9 8-5 10-26 6-11 8-11 9-10 10-7 13-6 7-2z" fill="currentColor"/>
+          <path d="m737 175h12l13 2 11 4 13 7 12 11 11 14 12 23 7 6 23 11 14 8 16 13 13 10 8 9 4 10 1 5v11l-3 11-6 9-8 7-9 4-8 1h-15l-7-3-10-8-7-10-4-15-5-22-3-16-8-24-3-6-7-3-16-3-9-3-16-2h-43l-16 2-13 4-16 4-5 5-7 20-6 28-5 40-3 30v13l21-3 38-3 22-3 13-1h33l13 4 10 5 4 4 1 3v14l-4 7-8 6-13 4-19 4-21 1-24-1-42-4-24-1 4 41 4 32 7 29 8 21 4 4 21 4 8 3 13 1h49l16-3 5-2 18-3 3-1 8-20 5-14 8-44 4-18 5-9 7-7 12-6 7-1h14l9 2 9 6 7 8 6 12 1 4v17l-8 16-8 10-11 12-8 7-10 8-14 9-21 11-8 4-9 10-7 11-9 10-9 8-16 9-24 6-12 1-26-7-15-8-10-9-7-7-11-15-7-9-17-8-22-14-15-13-13-13-8-11-6-13-4-12-1-7v-12l4-15 6-12 7-7 15-7 12-2h17v-9l-1-2-24-3-9-4-9-6-8-8-5-7-5-13-1-6v-17l2-12 5-12 9-14 11-12 12-12 17-13 16-9 12-6h2l2-5 12-21 11-14 10-10 15-9 10-4z" fill="currentColor"/>
+          <path d="m1211 175 12 1 12 6 8 8 8 16 3 12 1 7 1 33 1 129 2 34 5 44 3 7 21 12 21 8 8 1h21l13-3 21-9 10-7 2-3 6-41 1-12 1-36 1-162 2-10 8-15 7-8 10-7 10-4h18l10 4 6 4 8 9 7 14 1 8v21l-2 24-5 27-7 30-10 35-14 41-13 31-8 16-9 17-8 12-8 10-3 7-5 17-12 36-9 21-9 17-10 13-8 7-6 3-4 1h-15l-10-5-8-8-11-17-9-20-7-20-9-29-4-14-2-9-6-10-8-11-14-27-11-27-13-36-12-40-10-40-7-36-3-19-1-12 3-14 4-10 7-9 8-7 8-4z" fill="currentColor"/>
+          <path d="m978 176h20l12 4 10 6 7 7 6 12 3 12v10l-4 26-8 27-10 29v6l15 9 11 8 16 11 11 9 8 9 5 10 1 4v20l-4 12-7 12-11 12-13 13-11 9-15 12-14 11-6 5h-2l2 10 6 17 8 17 10 15 11 12 8 8v2l9-5 15-10 22-14 16-9 17-8 21-6 13-3h23l14 4 11 6 8 9 4 8 1 4v20l-3 10-7 11-8 7-25 12-19 5-20 4-20-1-23-6-22-8-18-11-6-4-5 1-26 14-15 7-15 4-10 3h-8l-13-5-10-6-7-9-4-8-3-13v-8l3-15 4-10 6-10 8-10 12-13 17-16v-15l-2-29v-23l3-35 5-25 8-31 1-9-7-6-16-10-12-9-12-11-7-7-8-15-4-15v-11l4-16 8-16 7-8 10-8 16-7z" fill="currentColor"/>
+          <path d="m1667 175 13 1 13 5 12 8 10 10 11 16 8 16 6 14 4 13 5 17 4 29v28l-4 36-7 30-4 13v7l19 40 15 31 11 25 6 18 1 5v18l-5 16-4 8-7 9-8 7-11 5-9 2h-18l-10-3-10-6-8-8-8-14-3-13v-14l3-21 7-28 8-25 9-27 3-12 3-6v-10l-4-10-10-21-10-19-10-20-13-23-15-26-10-15-13-18-11-13-12-13-4-4-3 10-6 17-7 24-7 28-7 34-4 16 9 15 10 13 5 1 15-5 9-1h32l16 4 14 5 9 6 7 9 5 13v10l-4 10-11 12-8 4-17 1h-8l-9-3-14-7-13-10-11-10-7-8-11-14-3-2-8 6-8 4-7 6-3 8-4 25-4 28-7 51-4 27-5 15-9 14-8 7-11 6-9 3-8-1-11-6-6-8-4-9-2-11v-11l2-15 8-24 8-16 7-13 24-36 9-11 11-13 8-10 5-10 4-15 3-23-1-10-9-16-10-17-9-19-5-14-5-22-1-7v-17l6-22 7-14 8-8 10-5 9-2 13 1 13 3 12 6 8 6 2-4 7-9 7-8 13-10 14-7 6-2z" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="header-right">
+        <div class="search-wrap">
+          <svg class="search-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.5" cy="5.5" r="4"/><line x1="8.5" y1="8.5" x2="12" y2="12"/></svg>
+          <input type="search" id="search" placeholder="Search..." autocomplete="off">
+        </div>
+        <span class="shortcut-hint"><kbd id="mod-key">Ctrl</kbd>+<kbd>S</kbd> save</span>
+        <button class="btn" id="reset-btn" disabled>Reset</button>
+        <button class="btn btn-primary" id="save-btn" disabled>
+          <span class="btn-save-indicator">Save</span>
+        </button>
+        <button class="btn-icon" id="settings-btn" title="Settings">&#9881;</button>
+      </div>
+    </header>
+    <div id="agent-bar">
+      <span class="agent-prompt-label">&gt;_</span>
+      <textarea id="agent-input" placeholder="welcome to the jungle..." autocomplete="off" spellcheck="false" rows="3"></textarea>
+      <button class="btn agent-icon-btn agent-run-btn" id="agent-run-btn" title="Run">
+        <svg class="agent-icon-play" width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg>
+        <svg class="agent-icon-stop hidden" width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg>
+      </button>
+      <button class="btn agent-icon-btn" id="agent-sysprompt-btn" title="Edit system prompt" style="position:relative;">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3h10M2 7h10M2 11h7"/></svg>
+        <svg class="sysprompt-sparks" width="14" height="14" viewBox="0 0 14 14" style="position:absolute;top:-5px;right:-5px;pointer-events:none;">
+          <path class="spark-1" d="M7 0L8.2 4.2 12.5 5.5 8.2 6.8 7 11 5.8 6.8 1.5 5.5 5.8 4.2Z" fill="var(--text-2)"/>
+          <path class="spark-2" d="M12 7L12.6 9 14 9.5 12.6 10 12 12 11.4 10 10 9.5 11.4 9Z" fill="var(--text-2)"/>
+        </svg>
+      </button>
+      <button class="btn agent-icon-btn" id="agent-model-btn" title="Select model">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3" cy="7" r="2"/><circle cx="11" cy="3" r="2"/><circle cx="11" cy="11" r="2"/><line x1="5" y1="7" x2="9" y2="3.5"/><line x1="5" y1="7" x2="9" y2="10.5"/></svg>
+      </button>
+      <span id="agent-model-label" class="agent-model-label"></span>
+      <span id="agent-model-logo" class="agent-model-logo"></span>
+      <span id="agent-token-count" class="agent-token-count"></span>
+    </div>
+    <div id="agent-timer-row"><span id="agent-timer" class="agent-timer"></span></div>
+    <div id="agent-sysprompt-panel" class="hidden">
+      <div class="sysprompt-header">
+        <span class="sysprompt-title">Additional Instructions</span>
+        <button class="btn sysprompt-reset-btn" id="sysprompt-reset" title="Clear">Clear</button>
+      </div>
+      <textarea id="sysprompt-editor" spellcheck="false" placeholder="Add extra instructions for the agent (appended to the built-in system prompt)..."></textarea>
+    </div>
+  </div>
+  <!-- Three-panel dashboard layout -->
+  <div id="dashboard-panels">
+    <div id="agent-chat-log" class="hidden"></div>
+    <!-- Pinned Panel -->
+    <div class="dash-panel collapsed" id="pinned-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title" id="pinned-panel-title">pinned</span>
+        <button class="pin-clear-btn" id="pin-clear-all" title="Remove all">&#215;</button>
+      </div>
+      <div class="dash-panel-body" id="pinned-body">
+        <div id="pinned-bar"></div>
+      </div>
+    </div>
+
+    <!-- Config Panel -->
+    <div class="dash-panel collapsed" id="config-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title" id="config-panel-title">config</span>
+        <nav id="file-tabs"></nav>
+      </div>
+      <div class="dash-panel-body" id="config-body">
+        <main id="config-editor">
+          <div class="empty-state">
+            <div class="icon">&#9881;</div>
+            <p>Loading configs...</p>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Data Panel -->
+    <div class="dash-panel collapsed hidden" id="data-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title" id="data-panel-title">data</span>
+        <nav id="data-tabs"></nav>
+      </div>
+      <div class="dash-panel-body" id="data-body">
+        <main id="data-editor"></main>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-overlay"></div>
+  <div id="settings-panel">
+    <div class="sp-header">
+      <h2>Settings</h2>
+      <button class="sp-close">&times;</button>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">Theme</div>
+      <div class="sp-themes" id="theme-swatches"></div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">Fonts</div>
+      <div class="sp-row">
+        <span class="sp-label">Labels</span>
+        <select class="sp-select" id="set-label-font">
+          <option value="'Major Mono Display', monospace">Major Mono</option>
+          <option value="'Share Tech Mono', monospace">Share Tech Mono</option>
+          <option value="'VT323', monospace">VT323</option>
+          <option value="'Press Start 2P', monospace">Press Start 2P</option>
+          <option value="'Silkscreen', monospace">Silkscreen</option>
+          <option value="'Orbitron', sans-serif">Orbitron</option>
+          <option value="'Space Mono', monospace">Space Mono</option>
+          <option value="'Fira Code', monospace">Fira Code</option>
+          <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+          <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+          <option value="'Courier New', Courier, monospace">Courier New</option>
+          <option value="-apple-system, sans-serif">System Sans</option>
+        </select>
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Fields</span>
+        <select class="sp-select" id="set-field-font">
+          <option value="'Major Mono Display', monospace">Major Mono</option>
+          <option value="'Share Tech Mono', monospace">Share Tech Mono</option>
+          <option value="'VT323', monospace">VT323</option>
+          <option value="'Press Start 2P', monospace">Press Start 2P</option>
+          <option value="'Silkscreen', monospace">Silkscreen</option>
+          <option value="'Orbitron', sans-serif">Orbitron</option>
+          <option value="'Space Mono', monospace">Space Mono</option>
+          <option value="'Fira Code', monospace">Fira Code</option>
+          <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+          <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+          <option value="'Courier New', Courier, monospace">Courier New</option>
+          <option value="-apple-system, sans-serif">System Sans</option>
+        </select>
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Values</span>
+        <select class="sp-select" id="set-value-font">
+          <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+          <option value="'Fira Code', monospace">Fira Code</option>
+          <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+          <option value="'Space Mono', monospace">Space Mono</option>
+          <option value="'Share Tech Mono', monospace">Share Tech Mono</option>
+          <option value="'VT323', monospace">VT323</option>
+          <option value="'Silkscreen', monospace">Silkscreen</option>
+          <option value="'Orbitron', sans-serif">Orbitron</option>
+          <option value="'Courier New', Courier, monospace">Courier New</option>
+        </select>
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Size</span>
+        <input type="range" class="sp-range" id="set-font-size" min="6" max="18" step="1" value="12">
+        <span class="sp-range-val" id="font-size-val">13</span>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">Colors</div>
+      <div class="sp-row">
+        <span class="sp-label">Background</span>
+        <input type="color" class="sp-color" id="set-bg0-color" value="#0b1410">
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Surface</span>
+        <input type="color" class="sp-color" id="set-bg1-color" value="#111d17">
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Label color</span>
+        <input type="color" class="sp-color" id="set-label-color" value="#b8d4c8">
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Field color</span>
+        <input type="color" class="sp-color" id="set-field-color" value="#4ec080">
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">Accent color</span>
+        <input type="color" class="sp-color" id="set-accent-color" value="#4ec080">
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">Layout</div>
+      <div class="sp-row">
+        <span class="sp-label">Density</span>
+        <select class="sp-select" id="set-density">
+          <option value="compact">Compact</option>
+          <option value="comfortable" selected>Comfortable</option>
+          <option value="spacious">Spacious</option>
+        </select>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Type badges</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-badges" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Section counts</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-counts" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Auto-expand all sections</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-autoexpand">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Sort keys alphabetically</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-sortkeys">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Show sliders</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-sliders" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="sp-toggle-row">
+        <span class="sp-label">Notebook mode</span>
+        <label class="toggle">
+          <input type="checkbox" id="set-notebook" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">API Keys (direct, no Copilot)</div>
+      <div class="sp-row">
+        <span class="sp-label">Anthropic</span>
+        <input type="password" class="sp-input" id="set-anthropic-key" placeholder="sk-ant-..." autocomplete="off">
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">OpenAI</span>
+        <input type="password" class="sp-input" id="set-openai-key" placeholder="sk-..." autocomplete="off">
+      </div>
+      <p class="sp-hint">Keys are stored locally. Direct API models appear in the agent dropdown.</p>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-section-title">Defaults</div>
+      <button class="sp-export-btn" id="save-defaults-btn">
+        <span class="export-icon">&#9733;</span> Save as my default
+      </button>
+      <button class="sp-export-btn" id="reset-defaults-btn">
+        <span class="export-icon">&#8635;</span> Reset to factory defaults
+      </button>
+    </div>
+
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script nonce="{{NONCE}}" src="{{YAML_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{MERMAID_URI}}"></script>
+  <script nonce="{{NONCE}}">mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'strict' });</script>
+  <script nonce="{{NONCE}}" src="{{MARKED_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{KATEX_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{UTILS_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{STATE_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{SLIDERS_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{RENDERER_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{AGENT_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{EVENTS_URI}}"></script>
+</body>
+</html>

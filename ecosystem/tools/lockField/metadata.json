@@ -1,0 +1,13 @@
+{
+  "name": "lockField",
+  "description": "Lock a single field value (make it read-only in the dashboard).",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file": { "type": "string" },
+      "path": { "type": "array", "items": {}, "description": "JSON path array" }
+    },
+    "required": ["file", "path"]
+  }
+}

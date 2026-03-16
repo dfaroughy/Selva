@@ -1,0 +1,13 @@
+{
+  "name": "execute_python",
+  "description": "Execute a Python code snippet. For data analysis, hypothesis testing, numerics etc. Input data (from YAML files) can be passed as JSON via the input_data parameter — accessible in code as: data = json.load(sys.stdin).",
+  "context": "extension",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "code": { "type": "string", "description": "Python code to execute" },
+      "input_data": { "type": "object", "description": "JSON data to pass on stdin (optional)" }
+    },
+    "required": ["code"]
+  }
+}

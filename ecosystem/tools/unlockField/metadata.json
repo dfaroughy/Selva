@@ -1,0 +1,10 @@
+{
+  "name": "unlockField",
+  "description": "Unlock a single field value.",
+  "context": "webview",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "file": { "type": "string" }, "path": { "type": "array", "items": {} } },
+    "required": ["file", "path"]
+  }
+}
