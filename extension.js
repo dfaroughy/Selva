@@ -9,7 +9,7 @@ const {
   callAnthropicAPI,
   callOpenAIAPI,
 } = require('./lib/agent-core');
-const { prepareNotebookPythonExecution } = require('./lib/notebook-python');
+const { executeNotebookCell } = require('./lib/notebook-execution');
 const {
   createWorkspaceRuntime,
   loadAllTools,
@@ -343,14 +343,6 @@ function runCliWithInput(binaryPath, args, {
   });
 }
 
-async function executeNotebookPython({ code, configDir, panel }) {
-  const allTools = loadAllTools(__dirname);
-  const pyTool = allTools.find((tool) => tool.name === 'execute_python');
-  if (!pyTool) throw new Error('execute_python tool not found');
-  const handler = loadExtensionTool(pyTool);
-  return handler({ code }, { execFileAsync, configDir, panel });
-}
-
 async function resolveRequestedCodingAgent(agentId) {
   const agents = await listCodingAgents();
   if (!agents.length) {
@@ -502,10 +494,12 @@ async function runExternalCellEditWithRetries({
   agentId,
   code,
   instruction,
+  language,
   output,
   configDir,
   sessionInstructions,
   panel,
+  trailId,
 }) {
   const { agent, binaryPath } = await resolveRequestedCodingAgent(agentId);
   const cellDebuggerModel = pickCellDebuggerModel(agent.id);
@@ -539,10 +533,14 @@ async function runExternalCellEditWithRetries({
       };
     }
 
-    latestValidationOutput = await executeNotebookPython({
-      code: prepareNotebookPythonExecution(currentCode),
+    latestValidationOutput = await executeNotebookCell({
+      language: language || 'python',
+      code: currentCode,
       configDir,
+      extensionPath: __dirname,
+      execFileAsync,
       panel,
+      trailId,
     });
 
     if (!looksLikeCellExecutionError(latestValidationOutput)) {
@@ -1129,14 +1127,17 @@ function activate(context) {
                 let result;
 
                 if (msg.agentId) {
+                  const activeSession = janeRuntime.getSession();
                   result = await runExternalCellEditWithRetries({
                     agentId: msg.agentId,
                     code: msg.code || '',
                     instruction: msg.instruction || '',
+                    language: msg.language || 'python',
                     output: msg.output || '',
                     configDir,
                     sessionInstructions,
                     panel,
+                    trailId: msg.trailId || activeSession.trailId || '',
                   });
                 } else {
                   result = await runLegacyInternalCellEdit({
@@ -1171,10 +1172,15 @@ function activate(context) {
           case 'executeCell': {
             (async () => {
               try {
-                const result = await executeNotebookPython({
-                  code: prepareNotebookPythonExecution(msg.code),
+                const activeSession = janeRuntime.getSession();
+                const result = await executeNotebookCell({
+                  language: msg.language || 'python',
+                  code: msg.code,
                   configDir,
+                  extensionPath: __dirname,
+                  execFileAsync,
                   panel,
+                  trailId: msg.trailId || activeSession.trailId || '',
                 });
                 panel.webview.postMessage({
                   type: 'executeCellResult',

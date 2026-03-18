@@ -391,6 +391,13 @@ function normalizeNotebookPythonRunState(runState, output) {
   return 'done';
 }
 
+function getNotebookCellLanguage(cell, fallback = 'python') {
+  const raw = String((cell && cell.dataset && cell.dataset.lang) || fallback || '').trim().toLowerCase();
+  if (!raw) return 'python';
+  if (raw === 'py' || raw === 'execute_python') return 'python';
+  return raw;
+}
+
 function mergeAdjacentMarkdownCells(cells) {
   const merged = [];
   for (const cell of (cells || [])) {
@@ -713,6 +720,7 @@ function buildCell(block) {
   // ── Python cell ────────────────────────────────────
   if (kind === 'python') {
     const isExpanded = !!block.expanded;
+    cell.dataset.lang = String(block.lang || 'python');
     const toolbar = _cellToolbar(
       `${PY_LOGO_SVG}` +
       `<button class="nb-cell-prompt-btn" title="Ask agent to edit this code">&gt;_</button>` +
@@ -822,6 +830,8 @@ function buildCell(block) {
           type: 'editCellCode',
           requestId,
           cellId,
+          language: getNotebookCellLanguage(cell),
+          trailId: state.activeTrailId || '',
           code: cell._cmEditor ? cell._cmEditor.getValue() : (cell.querySelector('.py-cell-input') || {}).value || '',
           instruction,
           output: looksLikeCellExecutionErrorText((cell.querySelector('.nb-output') || {}).dataset?.rawResult || '')
@@ -931,7 +941,14 @@ function buildCell(block) {
       output.className = 'nb-output';
       output.innerHTML = '<span class="nb-output-pending">Running...</span>';
       const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
-      vscode.postMessage({ type: 'executeCell', requestId, cellId, code: currentCode });
+      vscode.postMessage({
+        type: 'executeCell',
+        requestId,
+        cellId,
+        code: currentCode,
+        language: getNotebookCellLanguage(cell),
+        trailId: state.activeTrailId || '',
+      });
     });
 
     const shouldAutoRun = cell.dataset.runState === 'pending';
@@ -1091,7 +1108,7 @@ function addManualNotebookCell(kind) {
   if (!cellsDiv) return;
 
   const model = kind === 'python'
-    ? { type: 'python', code: '', output: '', runState: 'pending', expanded: true }
+    ? { type: 'python', lang: 'python', code: '', output: '', runState: 'pending', expanded: true }
     : { type: 'markdown', content: '', startEditing: true };
   const cell = buildCell(model);
   cellsDiv.appendChild(cell);
