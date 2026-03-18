@@ -2,75 +2,49 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const yaml = require('./vendor/js-yaml.min.js');
-const { extractOpsFromText, detectUnfencedPython, fixPythonForHeadless } = require('./lib/json-extract');
+const {
+  callAnthropicAPI,
+  callOpenAIAPI,
+} = require('./lib/agent-core');
+const { prepareNotebookPythonExecution } = require('./lib/notebook-python');
+const {
+  createWorkspaceRuntime,
+  loadAllTools,
+  loadExtensionTool,
+} = require('./lib/selva-runtime');
+const { createJaneRuntime } = require('./lib/jane-runtime');
+const {
+  acknowledgeExternalDrafts,
+  getTrailsDir,
+  setPanelState,
+} = require('./lib/session-store');
+const {
+  CELL_EDIT_RESULT_SCHEMA,
+  buildCellEditSystemPrompt,
+  buildCellEditUserPrompt,
+  buildCodingAgentConnectPrompt,
+  buildCodexProjectConfig,
+  buildWorkspaceMcpConfig,
+  detectCodingAgents,
+  looksLikeCellExecutionError,
+  parseCellEditAgentResponse,
+  pickCellDebuggerModel,
+  pickDefaultCodingAgentId,
+  resolveAgentBinaryPath,
+} = require('./lib/coding-agents');
 
 const execFileAsync = promisify(execFile);
 
 const panels = new Map(); // configDir -> WebviewPanel
 const activeTokenSources = new Map(); // configDir -> CancellationTokenSource
+const localSessionSyncSuppressUntil = new Map(); // configDir -> epoch ms
+const CELL_EDIT_MAX_ATTEMPTS = 3;
+const CELL_EDIT_AGENT_TIMEOUT_MS = 180000;
 
 const os = require('os');
-
-// ── Unified tool loader ────────────────────────────────────
-// Loads tools from a directory of tool folders (each with metadata.json + tool.js)
-function loadToolsFromDir(dir) {
-  const tools = [];
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        const metaPath = path.join(dir, entry.name, 'metadata.json');
-        const codePath = path.join(dir, entry.name, 'tool.js');
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-        const code = fs.readFileSync(codePath, 'utf8');
-        tools.push({
-          name: meta.name,
-          description: meta.description,
-          inputSchema: meta.inputSchema || {},
-          context: meta.context || 'webview',  // 'webview' or 'extension'
-          code,
-          source: dir,
-        });
-      } catch { /* skip invalid tool folders */ }
-    }
-  } catch { /* directory doesn't exist yet */ }
-  return tools;
-}
-
-// Load all tools from both built-in and user ecosystem
-function loadAllTools(extensionPath) {
-  const builtinDir = path.join(extensionPath, 'ecosystem', 'tools');
-  const userDir = path.join(os.homedir(), '.selva', 'ecosystem', 'tools');
-  const builtin = loadToolsFromDir(builtinDir);
-  const user = loadToolsFromDir(userDir);
-  // User tools override built-in tools with same name
-  const byName = new Map();
-  for (const t of builtin) byName.set(t.name, t);
-  for (const t of user) byName.set(t.name, t);
-  return [...byName.values()];
-}
-
-// Build LM API tool schemas from loaded tools
-function buildToolSchemas(tools) {
-  return tools.map(t => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.inputSchema,
-  }));
-}
-
-// Execute an extension-context tool by require'ing its tool.js
-function loadExtensionTool(tool) {
-  // tool.js is a CommonJS module that exports an async function
-  const modPath = path.join(tool.source, tool.name, 'tool.js');
-  // Clear require cache to pick up changes
-  delete require.cache[require.resolve(modPath)];
-  return require(modPath);
-}
 
 // ── API key storage (in-memory per session) ────────────────
 const apiKeys = { anthropic: '', openai: '' };
@@ -110,235 +84,571 @@ async function sendModelList(panel) {
   panel.webview.postMessage({ type: 'availableModels', models: modelList });
 }
 
-// ── Direct API calls ───────────────────────────────────────
-async function callAnthropicAPI(apiKey, modelId, systemPrompt, messages, tools, cancellationToken) {
-  const https = require('https');
-  const anthropicModel = modelId.replace('direct:', '');
-
-  // Convert messages to Anthropic format
-  const anthropicMessages = messages.map(m => ({
-    role: m.role,
-    content: m.content,
+async function listCodingAgents() {
+  const extensions = vscode.extensions.all.map((extension) => ({
+    id: extension.id,
+    version: extension.packageJSON && extension.packageJSON.version ? extension.packageJSON.version : '',
+    extensionPath: extension.extensionPath || '',
   }));
-
-  // Convert tool schemas to Anthropic format
-  const anthropicTools = (tools || []).map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.inputSchema,
-  }));
-
-  const body = {
-    model: anthropicModel,
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: anthropicMessages,
-  };
-  if (anthropicTools.length > 0) body.tools = anthropicTools;
-
-  return new Promise((resolve, reject) => {
-    if (cancellationToken && cancellationToken.isCancellationRequested) {
-      reject(new Error('cancelled'));
-      return;
-    }
-
-    const postData = JSON.stringify(body);
-    const req = https.request({
-      hostname: 'api.anthropic.com',
-      path: '/v1/messages',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.error) {
-            reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          } else {
-            resolve(parsed);
-          }
-        } catch (e) { reject(new Error('Invalid API response')); }
-      });
-    });
-    req.on('error', reject);
-    if (cancellationToken) {
-      cancellationToken.onCancellationRequested(() => { req.destroy(); reject(new Error('cancelled')); });
-    }
-    req.write(postData);
-    req.end();
-  });
+  return detectCodingAgents({ extensions });
 }
 
-async function callOpenAIAPI(apiKey, modelId, systemPrompt, messages, tools, cancellationToken) {
-  const https = require('https');
-  const openaiModel = modelId.replace('direct:', '');
+function shellQuote(value) {
+  return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
+}
 
-  const openaiMessages = [
-    { role: 'system', content: systemPrompt },
-    ...messages.map(m => ({ role: m.role, content: m.content })),
+function wrapManagedConfigBlock(body) {
+  return ['# >>> Selva MCP >>>', body.trimEnd(), '# <<< Selva MCP <<<', ''].join('\n');
+}
+
+function readWorkspaceSelvaMcpConfig(configDir) {
+  const mcpConfigPath = path.join(configDir, '.mcp.json');
+  if (!fs.existsSync(mcpConfigPath)) {
+    return {
+      command: '/opt/homebrew/bin/node',
+      args: [path.join(__dirname, 'mcp-server.js'), configDir],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
+    const server = parsed && parsed.mcpServers ? parsed.mcpServers.selva : null;
+    const command = server && server.command ? String(server.command) : '/opt/homebrew/bin/node';
+    const args = Array.isArray(server && server.args)
+      ? server.args.map((arg) => String(arg))
+      : [path.join(__dirname, 'mcp-server.js'), configDir];
+    return { command, args };
+  } catch {
+    return {
+      command: '/opt/homebrew/bin/node',
+      args: [path.join(__dirname, 'mcp-server.js'), configDir],
+    };
+  }
+}
+
+function ensureWorkspaceSelvaMcpConfig(configDir) {
+  const mcpConfigPath = path.join(configDir, '.mcp.json');
+  const desired = {
+    command: '/opt/homebrew/bin/node',
+    args: [path.join(__dirname, 'mcp-server.js'), configDir],
+  };
+
+  if (!fs.existsSync(mcpConfigPath)) {
+    fs.writeFileSync(mcpConfigPath, buildWorkspaceMcpConfig({
+      command: desired.command,
+      args: desired.args,
+    }), 'utf8');
+    return { configPath: mcpConfigPath, status: 'created' };
+  }
+
+  let parsed;
+  const currentText = fs.readFileSync(mcpConfigPath, 'utf8');
+  try {
+    parsed = JSON.parse(currentText);
+  } catch {
+    const backupPath = `${mcpConfigPath}.bak-${Date.now()}`;
+    fs.writeFileSync(backupPath, currentText, 'utf8');
+    fs.writeFileSync(mcpConfigPath, buildWorkspaceMcpConfig({
+      command: desired.command,
+      args: desired.args,
+    }), 'utf8');
+    return { configPath: mcpConfigPath, backupPath, status: 'repaired' };
+  }
+
+  const currentServer = parsed
+    && parsed.mcpServers
+    && typeof parsed.mcpServers === 'object'
+    && !Array.isArray(parsed.mcpServers)
+    ? parsed.mcpServers.selva
+    : null;
+  const currentArgs = Array.isArray(currentServer && currentServer.args)
+    ? currentServer.args.map((arg) => String(arg))
+    : [];
+  const currentCommand = currentServer && currentServer.command ? String(currentServer.command) : '';
+  if (currentCommand === desired.command && JSON.stringify(currentArgs) === JSON.stringify(desired.args)) {
+    return { configPath: mcpConfigPath, status: 'unchanged' };
+  }
+
+  fs.writeFileSync(mcpConfigPath, buildWorkspaceMcpConfig({
+    command: desired.command,
+    args: desired.args,
+    currentConfig: parsed,
+  }), 'utf8');
+  return { configPath: mcpConfigPath, status: 'updated' };
+}
+
+function ensureCodexProjectConfig(configDir) {
+  const codexDir = path.join(configDir, '.codex');
+  const configPath = path.join(codexDir, 'config.toml');
+  const mcpConfig = readWorkspaceSelvaMcpConfig(configDir);
+  const managedBlock = wrapManagedConfigBlock(buildCodexProjectConfig({
+    command: mcpConfig.command,
+    args: mcpConfig.args,
+  }));
+
+  fs.mkdirSync(codexDir, { recursive: true });
+  if (!fs.existsSync(configPath)) {
+    fs.writeFileSync(configPath, managedBlock, 'utf8');
+    return { configPath, status: 'created' };
+  }
+
+  const current = fs.readFileSync(configPath, 'utf8');
+  const beginMarker = '# >>> Selva MCP >>>';
+  const endMarker = '# <<< Selva MCP <<<';
+  if (current.includes(beginMarker) && current.includes(endMarker)) {
+    const updated = current.replace(new RegExp(`${beginMarker}[\\s\\S]*?${endMarker}\\n?`, 'm'), managedBlock);
+    if (updated !== current) fs.writeFileSync(configPath, updated, 'utf8');
+    return { configPath, status: updated === current ? 'unchanged' : 'updated' };
+  }
+
+  if (/\[mcp_servers\.selva\]/.test(current)) {
+    return { configPath, status: 'present' };
+  }
+
+  const prefix = current.trim().length ? `${current.trimEnd()}\n\n` : '';
+  fs.writeFileSync(configPath, prefix + managedBlock, 'utf8');
+  return { configPath, status: 'updated' };
+}
+
+function suppressLocalSessionSync(configDir, durationMs = 800) {
+  localSessionSyncSuppressUntil.set(configDir, Date.now() + durationMs);
+}
+
+function createTerminalLaunchScript({ agent, binaryPath, configDir, startupPrompt }) {
+  const tempDir = path.join(os.tmpdir(), 'selva-coding-agent');
+  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const promptFile = path.join(tempDir, `${agent.id}-${stamp}.prompt.txt`);
+  const scriptFile = path.join(tempDir, `${agent.id}-${stamp}.launch.sh`);
+
+  fs.mkdirSync(tempDir, { recursive: true });
+  fs.writeFileSync(promptFile, startupPrompt, 'utf8');
+
+  const scriptLines = [
+    '#!/bin/zsh',
+    'set -e',
+    `PROMPT_FILE=${shellQuote(promptFile)}`,
+    'PROMPT_CONTENT="$(cat "$PROMPT_FILE")"',
   ];
 
-  const openaiTools = (tools || []).map(t => ({
-    type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.inputSchema },
-  }));
+  if (agent.id === 'claude-code') {
+    const mcpConfigPath = path.join(configDir, '.mcp.json');
+    scriptLines.push(
+      `${shellQuote(binaryPath)} --permission-mode dontAsk --allowedTools mcp__selva --mcp-config ${shellQuote(mcpConfigPath)} -- "$PROMPT_CONTENT"`
+    );
+  } else if (agent.id === 'codex') {
+    scriptLines.push(
+      `${shellQuote(binaryPath)} -C ${shellQuote(configDir)} "$PROMPT_CONTENT"`
+    );
+  } else {
+    scriptLines.push(`${shellQuote(binaryPath)} "$PROMPT_CONTENT"`);
+  }
 
-  const body = { model: openaiModel, messages: openaiMessages };
-  if (openaiTools.length > 0) body.tools = openaiTools;
+  fs.writeFileSync(scriptFile, scriptLines.join('\n') + '\n', { mode: 0o700 });
+  try {
+    fs.chmodSync(scriptFile, 0o700);
+  } catch {
+    // best effort only; writeFileSync mode is enough on supported platforms
+  }
 
+  return {
+    promptFile,
+    scriptFile,
+    launchCommand: shellQuote(scriptFile),
+  };
+}
+
+function createManagedTempFile(prefix, extension, contents) {
+  const tempDir = path.join(os.tmpdir(), 'selva-coding-agent');
+  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const filePath = path.join(tempDir, `${prefix}-${stamp}.${extension}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+  fs.writeFileSync(filePath, contents, 'utf8');
+  return filePath;
+}
+
+function runCliWithInput(binaryPath, args, {
+  cwd,
+  timeout = 0,
+  maxBuffer = 10 * 1024 * 1024,
+  input = '',
+} = {}) {
   return new Promise((resolve, reject) => {
-    if (cancellationToken && cancellationToken.isCancellationRequested) {
-      reject(new Error('cancelled'));
-      return;
+    const child = spawn(binaryPath, args, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let timeoutId = null;
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.killed = timedOut || !!error.killed;
+      reject(error);
+    };
+
+    const appendChunk = (streamName, chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '');
+      if (streamName === 'stdout') stdout += text;
+      else stderr += text;
+      if (Buffer.byteLength(stdout, 'utf8') + Buffer.byteLength(stderr, 'utf8') > maxBuffer) {
+        const error = new Error(`CLI ${streamName} exceeded maxBuffer`);
+        error.code = 'MAXBUFFER';
+        try { child.kill('SIGTERM'); } catch {}
+        fail(error);
+      }
+    };
+
+    child.stdout.on('data', (chunk) => appendChunk('stdout', chunk));
+    child.stderr.on('data', (chunk) => appendChunk('stderr', chunk));
+    child.stdin.on('error', () => {});
+    child.on('error', fail);
+    child.on('close', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(`Command failed: ${binaryPath} ${args.join(' ')}`);
+      error.code = code;
+      error.signal = signal;
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.killed = timedOut;
+      reject(error);
+    });
+
+    if (timeout > 0) {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGTERM'); } catch {}
+        const forceKill = setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch {}
+        }, 2000);
+        if (typeof forceKill.unref === 'function') forceKill.unref();
+      }, timeout);
+      if (typeof timeoutId.unref === 'function') timeoutId.unref();
     }
 
-    const postData = JSON.stringify(body);
-    const req = https.request({
-      hostname: 'api.openai.com',
-      path: '/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(postData),
-      },
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.error) {
-            reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          } else {
-            resolve(parsed);
-          }
-        } catch (e) { reject(new Error('Invalid API response')); }
-      });
-    });
-    req.on('error', reject);
-    if (cancellationToken) {
-      cancellationToken.onCancellationRequested(() => { req.destroy(); reject(new Error('cancelled')); });
-    }
-    req.write(postData);
-    req.end();
+    child.stdin.end(input || '');
   });
 }
 
-// Run a full tool-use loop via direct API (Anthropic or OpenAI)
-async function runDirectAPILoop(modelId, systemPrompt, messages, toolSchemas, allToolsByName, accumulatedOps, capturedImages, executedCells, configDir, panel, cancellationToken, schemata) {
-  const isAnthropic = modelId.startsWith('direct:claude');
-  const apiKey = isAnthropic ? apiKeys.anthropic : apiKeys.openai;
-  if (!apiKey) throw new Error(`No API key set for ${isAnthropic ? 'Anthropic' : 'OpenAI'}`);
-
-  const MAX_TURNS = 10;
-  let finalAnswer = '';
-  let usedTools = false;
-  let totalTokens = { input: 0, output: 0 };
-
-  // Working message history for the API
-  const apiMessages = messages.map(m => ({ role: m.role, content: m.content }));
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    let response;
-    if (isAnthropic) {
-      response = await callAnthropicAPI(apiKey, modelId, systemPrompt, apiMessages, toolSchemas, cancellationToken);
-      if (response.usage) {
-        totalTokens.input += response.usage.input_tokens || 0;
-        totalTokens.output += response.usage.output_tokens || 0;
-      }
-      let turnText = '';
-      const toolCalls = [];
-      for (const block of (response.content || [])) {
-        if (block.type === 'text') turnText += block.text;
-        if (block.type === 'tool_use') toolCalls.push(block);
-      }
-
-      if (toolCalls.length === 0) {
-        finalAnswer += turnText;
-        break;
-      }
-      if (!usedTools && turnText) { /* skip preamble */ }
-      else if (turnText) finalAnswer += turnText;
-      usedTools = true;
-
-      // Add assistant response to history
-      apiMessages.push({ role: 'assistant', content: response.content });
-
-      // Execute tools and add results
-      const toolResults = [];
-      for (const tc of toolCalls) {
-        const result = await executeDirectToolCall(tc.name, tc.input, allToolsByName, accumulatedOps, capturedImages, executedCells, configDir, panel, schemata);
-        toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result });
-      }
-      apiMessages.push({ role: 'user', content: toolResults });
-
-    } else {
-      // OpenAI
-      response = await callOpenAIAPI(apiKey, modelId, systemPrompt, apiMessages, toolSchemas, cancellationToken);
-      if (response.usage) {
-        totalTokens.input += response.usage.prompt_tokens || 0;
-        totalTokens.output += response.usage.completion_tokens || 0;
-      }
-      const choice = response.choices && response.choices[0];
-      if (!choice) break;
-      const msg = choice.message;
-      const turnText = msg.content || '';
-      const toolCalls = msg.tool_calls || [];
-
-      if (toolCalls.length === 0) {
-        finalAnswer += turnText;
-        break;
-      }
-      if (!usedTools && turnText) { /* skip preamble */ }
-      else if (turnText) finalAnswer += turnText;
-      usedTools = true;
-
-      // Add assistant message
-      apiMessages.push({ role: 'assistant', content: msg.content, tool_calls: msg.tool_calls });
-
-      // Execute tools
-      for (const tc of toolCalls) {
-        const args = JSON.parse(tc.function.arguments || '{}');
-        const result = await executeDirectToolCall(tc.function.name, args, allToolsByName, accumulatedOps, capturedImages, executedCells, configDir, panel, schemata);
-        apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-      }
-    }
-  }
-  return { answer: finalAnswer, usage: totalTokens };
+async function executeNotebookPython({ code, configDir, panel }) {
+  const allTools = loadAllTools(__dirname);
+  const pyTool = allTools.find((tool) => tool.name === 'execute_python');
+  if (!pyTool) throw new Error('execute_python tool not found');
+  const handler = loadExtensionTool(pyTool);
+  return handler({ code }, { execFileAsync, configDir, panel });
 }
 
-async function executeDirectToolCall(name, input, toolsByName, accumulatedOps, capturedImages, executedCells, configDir, panel, schemata) {
-  const tool = toolsByName.get(name);
-  if (!tool) return `Unknown tool: ${name}`;
-  try {
-    if (tool.context === 'extension') {
-      const handler = loadExtensionTool(tool);
-      let result = await handler(input, { execFileAsync, configDir, panel, schemata });
-      if (name === 'execute_python' && input.code) {
-        executedCells.push({ code: input.code, output: typeof result === 'string' ? result : '' });
-      }
-      if (typeof result === 'string') {
-        result = result.replace(/IMG:([A-Za-z0-9+/=\s]{20,})/g, (_, b64) => {
-          capturedImages.push(b64.replace(/\s/g, ''));
-          return '[plot generated]';
-        });
-      }
-      return result;
-    } else {
-      accumulatedOps.push({ fn: name, input });
-      return `Done: ${name}(${JSON.stringify(input).slice(0, 200)})`;
-    }
-  } catch (e) {
-    return `Error in ${name}: ${e.message}`;
+async function resolveRequestedCodingAgent(agentId) {
+  const agents = await listCodingAgents();
+  if (!agents.length) {
+    throw new Error('No coding agents are available in this VS Code instance.');
   }
+
+  const effectiveId = agentId || pickDefaultCodingAgentId(agents);
+  const agent = agents.find((candidate) => candidate.id === effectiveId) || agents[0];
+  if (!agent) {
+    throw new Error('Selected coding agent is not available in this VS Code instance.');
+  }
+
+  const binaryPath = resolveAgentBinaryPath(agent);
+  if (!binaryPath) {
+    throw new Error(`Could not find the ${agent.label} CLI binary in the installed VS Code extension.`);
+  }
+
+  return { agent, binaryPath };
+}
+
+function formatCliFailure(error) {
+  const stdout = error && error.stdout ? String(error.stdout).trim() : '';
+  const stderr = error && error.stderr ? String(error.stderr).trim() : '';
+  const details = [stderr, stdout].filter(Boolean).join('\n\n');
+  if (details) return details;
+
+  if (error && (error.code === 'E2BIG' || /E2BIG/.test(String(error.message || '')))) {
+    return 'The cell edit prompt was too large to launch the coding agent.';
+  }
+
+  if (error && error.code === 'MAXBUFFER') {
+    return 'The coding agent returned too much output while editing the cell.';
+  }
+
+  if (error && error.killed) {
+    return 'Timed out waiting for the coding agent to return edited code.';
+  }
+
+  const message = String((error && error.message) || '').trim();
+  if (/^Command failed:/.test(message)) {
+    const exitCode = typeof error.code === 'number' ? ` (exit ${error.code})` : '';
+    return `The coding agent exited before returning a valid response${exitCode}.`;
+  }
+
+  return message || 'Unknown coding agent failure';
+}
+
+function updatePanelTitle(panel, folderName, trailName) {
+  const safeFolder = folderName || 'Selva';
+  const safeTrail = String(trailName || '').trim();
+  panel.title = safeTrail ? `${safeFolder} · ${safeTrail}` : safeFolder;
+}
+
+async function runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId = '' }) {
+  try {
+    const args = [
+      '-p',
+    ];
+    if (modelId) args.push('--model', modelId);
+    args.push(
+      '--effort', 'low',
+      '--output-format', 'json',
+      '--json-schema', JSON.stringify(CELL_EDIT_RESULT_SCHEMA),
+      '--no-session-persistence',
+      '--permission-mode', 'dontAsk',
+      '--tools', '',
+      '--strict-mcp-config',
+      '--mcp-config', '{"mcpServers":{}}',
+      '--system-prompt', systemPrompt,
+    );
+    const { stdout } = await runCliWithInput(binaryPath, args, {
+      cwd: configDir,
+      timeout: CELL_EDIT_AGENT_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+      input: userPrompt,
+    });
+    return parseCellEditAgentResponse(stdout);
+  } catch (error) {
+    throw new Error(`Claude Code cell edit failed: ${formatCliFailure(error)}`);
+  }
+}
+
+async function runCodexCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId = '' }) {
+  const schemaFile = createManagedTempFile('cell-edit-schema', 'json', JSON.stringify(CELL_EDIT_RESULT_SCHEMA, null, 2));
+  const outputFile = createManagedTempFile('cell-edit-output', 'json', '');
+  const prompt = [systemPrompt, userPrompt].filter(Boolean).join('\n\n');
+
+  try {
+    const args = [
+      '-a', 'never',
+      'exec',
+      '--skip-git-repo-check',
+      '--ephemeral',
+      '--sandbox', 'read-only',
+      '--color', 'never',
+      '--output-schema', schemaFile,
+      '-o', outputFile,
+      '-C', configDir,
+    ];
+    if (modelId) args.push('--model', modelId);
+    args.push('-');
+    const { stdout } = await runCliWithInput(binaryPath, args, {
+      cwd: configDir,
+      timeout: CELL_EDIT_AGENT_TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+      input: prompt,
+    });
+    const raw = fs.existsSync(outputFile) ? fs.readFileSync(outputFile, 'utf8') : stdout;
+    return parseCellEditAgentResponse(raw);
+  } catch (error) {
+    throw new Error(`Codex cell edit failed: ${formatCliFailure(error)}`);
+  } finally {
+    try { fs.unlinkSync(schemaFile); } catch {}
+    try { fs.unlinkSync(outputFile); } catch {}
+  }
+}
+
+async function runExternalCellEditOnce({
+  agentId,
+  code,
+  instruction,
+  output,
+  configDir,
+  sessionInstructions,
+}) {
+  const { agent, binaryPath } = await resolveRequestedCodingAgent(agentId);
+  const cellDebuggerModel = pickCellDebuggerModel(agent.id);
+  const systemPrompt = buildCellEditSystemPrompt({ sessionInstructions });
+  const shouldIncludeOutput = looksLikeCellExecutionError(output);
+  const userPrompt = buildCellEditUserPrompt({
+    instruction,
+    code,
+    output: shouldIncludeOutput ? output : '',
+    attempt: 1,
+    maxAttempts: 1,
+  });
+
+  const response = agent.id === 'codex'
+    ? await runCodexCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel })
+    : await runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel });
+
+  return {
+    agent,
+    code: response.code || '',
+  };
+}
+
+async function runExternalCellEditWithRetries({
+  agentId,
+  code,
+  instruction,
+  output,
+  configDir,
+  sessionInstructions,
+  panel,
+}) {
+  const { agent, binaryPath } = await resolveRequestedCodingAgent(agentId);
+  const cellDebuggerModel = pickCellDebuggerModel(agent.id);
+  const systemPrompt = buildCellEditSystemPrompt({ sessionInstructions });
+  const shouldValidate = looksLikeCellExecutionError(output);
+  let currentCode = String(code || '');
+  let currentOutput = String(output || '');
+  let latestValidationOutput = currentOutput;
+
+  for (let attempt = 1; attempt <= CELL_EDIT_MAX_ATTEMPTS; attempt++) {
+    const userPrompt = buildCellEditUserPrompt({
+      instruction,
+      code: currentCode,
+      output: shouldValidate ? currentOutput : '',
+      attempt,
+      maxAttempts: CELL_EDIT_MAX_ATTEMPTS,
+    });
+
+    const response = agent.id === 'codex'
+      ? await runCodexCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel })
+      : await runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel });
+
+    currentCode = response.code || currentCode;
+    if (!shouldValidate) {
+      return {
+        agent,
+        code: currentCode,
+        output: currentOutput,
+        attempts: attempt,
+        validated: false,
+      };
+    }
+
+    latestValidationOutput = await executeNotebookPython({
+      code: prepareNotebookPythonExecution(currentCode),
+      configDir,
+      panel,
+    });
+
+    if (!looksLikeCellExecutionError(latestValidationOutput)) {
+      return {
+        agent,
+        code: currentCode,
+        output: latestValidationOutput,
+        attempts: attempt,
+        validated: true,
+      };
+    }
+
+    currentOutput = latestValidationOutput;
+  }
+
+  return {
+    agent,
+    code: currentCode,
+    output: latestValidationOutput,
+    attempts: CELL_EDIT_MAX_ATTEMPTS,
+    validated: true,
+    error: `Updated code still fails after ${CELL_EDIT_MAX_ATTEMPTS} repair attempts.`,
+  };
+}
+
+async function runLegacyInternalCellEdit({ code, instruction, modelId }) {
+  const prompt = `Modify the following Python code according to this instruction: "${instruction}"\n\nCode:\n\`\`\`python\n${code}\n\`\`\`\n\nReturn ONLY the modified Python code. No explanation, no fences, no markdown — just the raw code.`;
+
+  const isDirectAPI = modelId && modelId.startsWith('direct:');
+  let result = '';
+
+  if (isDirectAPI) {
+    const isAnthropic = modelId.startsWith('direct:claude');
+    const apiKey = isAnthropic ? apiKeys.anthropic : apiKeys.openai;
+    if (!apiKey) throw new Error('No API key');
+    if (isAnthropic) {
+      const resp = await callAnthropicAPI(apiKey, modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
+      result = (resp.content || []).filter((block) => block.type === 'text').map((block) => block.text).join('');
+    } else {
+      const resp = await callOpenAIAPI(apiKey, modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
+      result = resp.choices?.[0]?.message?.content || '';
+    }
+  } else if (vscode.lm) {
+    const allModels = await vscode.lm.selectChatModels({});
+    let model = modelId ? allModels.find((candidate) => candidate.id === modelId) : allModels[0];
+    if (!model && allModels.length) model = allModels[0];
+    if (model) {
+      const messages = [vscode.LanguageModelChatMessage.User(prompt)];
+      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+      for await (const chunk of response.text) { result += chunk; }
+    }
+  }
+
+  const parsed = parseCellEditAgentResponse(result);
+  return {
+    code: parsed.code || '',
+    output: '',
+    validated: false,
+    attempts: 1,
+  };
+}
+
+async function connectCodingAgent({ agentId, janeRuntime }) {
+  const agents = await listCodingAgents();
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent) {
+    throw new Error('Selected coding agent is not available in this VS Code instance.');
+  }
+
+  const initPayload = janeRuntime.buildInitPayload();
+  const configDir = initPayload.configDir || janeRuntime.configDir;
+  const startupPrompt = buildCodingAgentConnectPrompt({ agent, initPayload });
+  const workspaceMcpSync = ensureWorkspaceSelvaMcpConfig(configDir);
+  let configSync = null;
+
+  if (agent.id === 'codex') {
+    configSync = ensureCodexProjectConfig(configDir);
+  }
+
+  const binaryPath = resolveAgentBinaryPath(agent);
+  if (!binaryPath) {
+    throw new Error(`Could not find the ${agent.label} CLI binary in the installed VS Code extension.`);
+  }
+
+  const launchArtifacts = createTerminalLaunchScript({
+    agent,
+    binaryPath,
+    configDir,
+    startupPrompt,
+  });
+  const terminal = vscode.window.createTerminal({
+    name: `Selva ${agent.label}`,
+    cwd: configDir,
+  });
+  await vscode.env.clipboard.writeText(startupPrompt);
+  terminal.show(true);
+  terminal.sendText(launchArtifacts.launchCommand, true);
+
+  return {
+    agent,
+    launchMode: 'terminal',
+    promptCopied: true,
+    launchCommand: launchArtifacts.scriptFile,
+    workspaceMcpSync,
+    configSync,
+  };
 }
 
 function activate(context) {
@@ -410,9 +720,15 @@ function activate(context) {
         return;
       }
 
+      ensureWorkspaceSelvaMcpConfig(configDir);
+
       // ── Resource URIs ──────────────────────────────────────
       const nonce = crypto.randomBytes(16).toString('hex');
       const folderName = path.basename(configDir).replace(/ /g, '_');
+      const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath: context.extensionPath });
+      const janeRuntime = createJaneRuntime({ configDir, extensionPath: context.extensionPath, workspaceRuntime });
+      const trailsDir = getTrailsDir(configDir);
+      const initialTrailState = janeRuntime.listTrails();
 
       const panel = vscode.window.createWebviewPanel(
         'configDashboard',
@@ -429,13 +745,23 @@ function activate(context) {
       );
 
       panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'logo_2D.png');
+      updatePanelTitle(panel, folderName, initialTrailState.activeTrail && initialTrailState.activeTrail.name);
       panels.set(configDir, panel);
-      panel.onDidDispose(() => { panels.delete(configDir); }, null, context.subscriptions);
+      setPanelState(configDir, { open: true });
+      panel.onDidDispose(() => {
+        panels.delete(configDir);
+        setPanelState(configDir, { open: false });
+      }, null, context.subscriptions);
 
       const mediaUri = (file) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', file));
       const vendorUri = (file) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'vendor', file));
       const cssUri      = mediaUri('webview.css');
+      const codeMirrorCssUri = vendorUri('codemirror/lib/codemirror.css');
       const katexCssUri = vendorUri('katex.min.css');
+      const codeMirrorUri = vendorUri('codemirror/lib/codemirror.js');
+      const codeMirrorCommentUri = vendorUri('codemirror/addon/comment/comment.js');
+      const codeMirrorMatchBracketsUri = vendorUri('codemirror/addon/edit/matchbrackets.js');
+      const codeMirrorPythonUri = vendorUri('codemirror/mode/python/python.js');
       const yamlUri     = vendorUri('js-yaml.min.js');
       const mermaidUri  = vendorUri('mermaid.min.js');
       const markedUri   = vendorUri('marked.min.js');
@@ -454,7 +780,12 @@ function activate(context) {
         .replace(/\{\{NONCE\}\}/g, nonce)
         .replace(/\{\{CSP_SOURCE\}\}/g, cspSource)
         .replace('{{CSS_URI}}',       cssUri.toString())
+        .replace('{{CODEMIRROR_CSS_URI}}', codeMirrorCssUri.toString())
         .replace('{{KATEX_CSS_URI}}', katexCssUri.toString())
+        .replace('{{CODEMIRROR_URI}}', codeMirrorUri.toString())
+        .replace('{{CODEMIRROR_COMMENT_URI}}', codeMirrorCommentUri.toString())
+        .replace('{{CODEMIRROR_MATCHBRACKETS_URI}}', codeMirrorMatchBracketsUri.toString())
+        .replace('{{CODEMIRROR_PYTHON_URI}}', codeMirrorPythonUri.toString())
         .replace('{{YAML_URI}}',     yamlUri.toString())
         .replace('{{MERMAID_URI}}',  mermaidUri.toString())
         .replace('{{MARKED_URI}}',   markedUri.toString())
@@ -486,10 +817,49 @@ function activate(context) {
         return results.sort();
       }
 
+      // ── File watcher (auto-reload on external changes, e.g. MCP) ──
+      const watcher = fs.watch(configDir, { recursive: true }, (eventType, filename) => {
+        if (!filename || !/\.ya?ml$/i.test(filename)) return;
+        // Debounce: ignore rapid successive events
+        if (watcher._debounce) clearTimeout(watcher._debounce);
+        watcher._debounce = setTimeout(() => {
+          try {
+            const filePath = path.resolve(configDir, filename);
+            const safeBase = path.resolve(configDir) + path.sep;
+            if (!filePath.startsWith(safeBase)) return;
+            const raw = fs.readFileSync(filePath, 'utf8');
+            const docs = yaml.loadAll(raw);
+            const docKey = docs.length === 1 ? null : filename.replace(/\.ya?ml$/i, '');
+            const parsed = docKey ? { [docKey]: docs } : docs[0];
+            panel.webview.postMessage({ type: 'configData', filename, raw, parsed, external: true });
+          } catch { /* file may be mid-write */ }
+        }, 300);
+      });
+      const sessionWatcher = fs.watch(trailsDir, () => {
+        if (sessionWatcher._debounce) clearTimeout(sessionWatcher._debounce);
+        sessionWatcher._debounce = setTimeout(() => {
+          try {
+            if ((localSessionSyncSuppressUntil.get(configDir) || 0) > Date.now()) return;
+            const trailState = janeRuntime.listTrails();
+            updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'janeSessionSync',
+              session: janeRuntime.getSession(),
+              trailState,
+            });
+          } catch { /* session may be mid-write */ }
+        }, 120);
+      });
+      panel.onDidDispose(() => {
+        watcher.close();
+        sessionWatcher.close();
+      }, null, context.subscriptions);
+
       // ── Message handler ────────────────────────────────────
       panel.webview.onDidReceiveMessage(async (msg) => {
         switch (msg.type) {
           case 'init': {
+            setPanelState(configDir, { open: true });
             const files = findYamlFiles(configDir, configDir);
             const userDefaultSettings = context.globalState.get('userDefaultSettings', null);
             const pinnedKey = 'pinnedFields:' + configDir;
@@ -502,8 +872,29 @@ function activate(context) {
               anthropic: apiKeys.anthropic ? '••••' + apiKeys.anthropic.slice(-4) : '',
               openai: apiKeys.openai ? '••••' + apiKeys.openai.slice(-4) : '',
             };
-            const additionalInstructions = context.globalState.get('additionalInstructions', '');
-            panel.webview.postMessage({ type: 'init', files, configDir, userDefaultSettings, pinnedFields, defaultPromptTemplate, apiKeys: maskedKeys, additionalInstructions });
+            let janeSession = janeRuntime.getSession();
+            const legacyAdditionalInstructions = context.globalState.get('additionalInstructions', '');
+            if (!janeSession.additionalInstructions && legacyAdditionalInstructions) {
+              janeSession = janeRuntime.setSessionInstructions(legacyAdditionalInstructions);
+            }
+            const codingAgents = await listCodingAgents();
+            const trailState = janeRuntime.listTrails();
+            updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'init',
+              files,
+              configDir,
+              userDefaultSettings,
+              pinnedFields,
+              defaultPromptTemplate,
+              apiKeys: maskedKeys,
+              additionalInstructions: janeSession.additionalInstructions,
+              session: janeSession,
+              trails: trailState.trails,
+              activeTrail: trailState.activeTrail,
+              codingAgents,
+              defaultCodingAgentId: pickDefaultCodingAgentId(codingAgents),
+            });
             sendModelList(panel);
             // Send webview-context tools for registration
             const initTools = loadAllTools(context.extensionPath);
@@ -513,8 +904,95 @@ function activate(context) {
             panel.webview.postMessage({ type: 'registerTools', tools: webviewTools });
             break;
           }
+          case 'ackExternalDrafts': {
+            acknowledgeExternalDrafts(configDir, msg.ids || []);
+            break;
+          }
+          case 'persistSessionEntries': {
+            suppressLocalSessionSync(configDir);
+            janeRuntime.replaceSessionEntries(msg.entries || []);
+            break;
+          }
+          case 'janeTrailNew': {
+            suppressLocalSessionSync(configDir);
+            const result = janeRuntime.createTrail({ name: msg.name || '' });
+            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'trailState',
+              action: 'new',
+              session: janeRuntime.getSession(),
+              trails: result.trails,
+              activeTrail: result.activeTrail,
+            });
+            break;
+          }
+          case 'janeTrailFork': {
+            suppressLocalSessionSync(configDir);
+            const result = janeRuntime.forkTrail({
+              name: msg.name || '',
+              sourceTrailId: msg.sourceTrailId || '',
+            });
+            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'trailState',
+              action: 'fork',
+              session: janeRuntime.getSession(),
+              trails: result.trails,
+              activeTrail: result.activeTrail,
+            });
+            break;
+          }
+          case 'janeTrailSwitch': {
+            suppressLocalSessionSync(configDir);
+            const result = janeRuntime.switchTrail({ trailId: msg.trailId || '' });
+            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'trailState',
+              action: 'switch',
+              session: janeRuntime.getSession(),
+              trails: result.trails,
+              activeTrail: result.activeTrail,
+            });
+            break;
+          }
+          case 'janeTrailRename': {
+            suppressLocalSessionSync(configDir);
+            const result = janeRuntime.renameTrail({
+              trailId: msg.trailId || '',
+              name: msg.name || '',
+            });
+            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+            panel.webview.postMessage({
+              type: 'trailState',
+              action: 'rename',
+              session: janeRuntime.getSession(),
+              trails: result.trails,
+              activeTrail: result.activeTrail,
+            });
+            break;
+          }
           case 'listModels': {
             sendModelList(panel);
+            break;
+          }
+          case 'connectCodingAgent': {
+            try {
+              const result = await connectCodingAgent({
+                agentId: String(msg.agentId || ''),
+                janeRuntime,
+              });
+              panel.webview.postMessage({
+                type: 'codingAgentConnected',
+                agent: result.agent,
+                launchMode: result.launchMode,
+                promptCopied: result.promptCopied,
+              });
+            } catch (e) {
+              panel.webview.postMessage({
+                type: 'codingAgentConnectionError',
+                error: e.message,
+              });
+            }
             break;
           }
           case 'saveUserDefaults': {
@@ -567,390 +1045,79 @@ function activate(context) {
             break;
           }
           case 'bootstrap':
-          case 'agentPrompt': {
-            const isBootstrap = msg.type === 'bootstrap';
-            const resultType = isBootstrap ? 'bootstrapResult' : 'agentResult';
+          case 'agentPrompt':
+          case 'janeSessionBootstrap':
+          case 'janeSessionRun': {
+            const isBootstrap = msg.type === 'bootstrap' || msg.type === 'janeSessionBootstrap';
             (async () => {
               try {
-                // ── Select model ──────────────────────────────
-                const modelId = msg.modelId;
-                const isDirectAPI = modelId && modelId.startsWith('direct:');
-                let model = null;
-
-                if (!isDirectAPI) {
-                  if (!vscode.lm) {
-                    panel.webview.postMessage({ type: resultType, ops: [], answer: isBootstrap ? null : undefined, error: isBootstrap ? undefined : 'Language Model API not available.' });
-                    return;
-                  }
-                  let allModels = await vscode.lm.selectChatModels({});
-                  model = modelId ? (allModels || []).find(m => m.id === modelId) : null;
-                  if (!model) {
-                    const byFamily = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
-                    model = byFamily && byFamily[0];
-                  }
-                  if (!model && allModels && allModels.length > 0) model = allModels[0];
-                  if (!model) {
-                    panel.webview.postMessage({ type: resultType, ops: [], answer: null, error: isBootstrap ? undefined : 'No language model available.' });
-                    return;
-                  }
-                }
-
-                // ── Context budget ────────────────────────────
-                const maxTokens = isDirectAPI ? 128000 : (model.maxInputTokens || 4000);
-                const usableTokens = Math.floor(maxTokens * 0.75);
-                const charBudget = usableTokens * 4;
-                const readmeBudget = Math.floor(charBudget * 0.10);
-                const fieldCharBudget = Math.floor(charBudget * 0.80);
-
-                // ── Repo context ──────────────────────────────
-                let repoContext = '';
-                for (const dir of [configDir, path.dirname(configDir)]) {
-                  for (const fname of ['README.md', 'readme.md', 'README.txt', 'readme.txt']) {
-                    try { repoContext = fs.readFileSync(path.join(dir, fname), 'utf8').slice(0, readmeBudget); break; }
-                    catch { /* not found */ }
-                  }
-                  if (repoContext) break;
-                }
-
-                // ── Build schema block ────────────────────────
-                const schemata = msg.schemata || [];
-                let schemaBlock;
-
-                if (isBootstrap) {
-                  // Full schema for bootstrap — agent needs to see everything to classify
-                  const totalFieldBudget = Math.max(50, Math.floor(fieldCharBudget / 80));
-                  const totalFields = schemata.reduce((s, f) => s + f.fields.length, 0);
-
-                  schemaBlock = schemata.map(({ file, fields }) => {
-                    const budget = Math.max(10, Math.round((fields.length / Math.max(totalFields, 1)) * totalFieldBudget));
-                    const truncated = fields.length > budget;
-                    const lines = fields.slice(0, budget).map(({ path, value, type }) =>
-                      `    ${JSON.stringify(path)}  =  ${JSON.stringify(value)}  (${type})`
-                    ).join('\n');
-                    const truncNote = truncated ? `\n    ... (${fields.length - budget} more fields, ${fields.length} total)` : '';
-                    return `  [${file}]\n  FIELDS (${fields.length} total):\n${lines}${truncNote}`;
-                  }).join('\n\n');
-                } else {
-                  // Lightweight file list for queries — agent already knows the files from init
-                  const ds = msg.dashboardState || {};
-                  schemaBlock = schemata.map(({ file, fields }) => {
-                    const type = (ds.fileTypes || {})[file] || 'unknown';
-                    return `  [${file}] (${type}, ${fields.length} fields)`;
-                  }).join('\n') + '\n  Use get_file_schema(file) to inspect a file\'s fields and values.';
-                }
-
-                // ── Dashboard state ───────────────────────────
-                let stateBlock;
-                if (isBootstrap) {
-                  stateBlock = 'CURRENT DASHBOARD STATE:\n  (bootstrap — fresh session, no classifications yet)';
-                } else {
-                  const ds = msg.dashboardState || {};
-                  const pinnedEntries = [];
-                  for (const [file, paths] of Object.entries(ds.pinnedFields || {})) {
-                    for (const p of (paths || [])) pinnedEntries.push(`  - ${file} → ${(p || []).join('.')}`);
-                  }
-                  const pinnedBlock = pinnedEntries.length ? `Pinned fields (${pinnedEntries.length}):\n${pinnedEntries.join('\n')}` : 'Pinned fields: none';
-                  const lockedList = (ds.lockedFields || []).slice(0, 50);
-                  const lockedBlock = lockedList.length ? `Locked fields (${lockedList.length}): ${lockedList.map(k => k.replace(':', ' → ')).join(', ')}` : 'Locked fields: none';
-                  stateBlock = `CURRENT DASHBOARD STATE:\n  File classifications: ${JSON.stringify(ds.fileTypes || {})}\n  Active config tab: ${ds.activeConfigFile || '(none)'}\n  Active data tab: ${ds.activeDataFile || '(none)'}\n  ${pinnedBlock}\n  ${lockedBlock}`;
-                }
-
-                // ── Load ecosystem tools ──────────────────────
-                const allTools = loadAllTools(context.extensionPath);
-                const toolSchemas = buildToolSchemas(allTools);
-                const toolsByName = new Map(allTools.map(t => [t.name, t]));
-
-                // User-created tools summary for system prompt
-                const userTools = allTools.filter(t => t.source.includes('.selva'));
-                const toolkitBlock = userTools.length
-                  ? `\nECOSYSTEM TOOLS (user-created):\n${userTools.map(t => `  - ${t.name}: ${t.description}`).join('\n')}`
-                  : '';
-
-                // ── System prompt ─────────────────────────────
-                const template = fs.readFileSync(path.join(context.extensionPath, 'ecosystem', 'prompts', 'system.md'), 'utf8');
-                const contextSection = repoContext ? `REPO CONTEXT (from README):\n${repoContext}` : '';
-                let systemPrompt = template
-                  .replace('{{REPO_CONTEXT}}', contextSection)
-                  .replace('{{SCHEMA_BLOCK}}', schemaBlock)
-                  .replace('{{DASHBOARD_STATE}}', stateBlock)
-                  + toolkitBlock;
-                if (!isBootstrap && msg.additionalPrompt) {
-                  systemPrompt += '\n\nADDITIONAL USER INSTRUCTIONS:\n' + msg.additionalPrompt;
-                }
-
-                // ── Build messages (for vscode.lm path only) ──
-                const messages = [];
-                if (!isDirectAPI && vscode.lm) {
-                  messages.push(vscode.LanguageModelChatMessage.User(systemPrompt));
-                  if (isBootstrap) {
-                    const bootstrapPrompt = fs.readFileSync(path.join(context.extensionPath, 'ecosystem', 'prompts', 'init.md'), 'utf8');
-                    messages.push(vscode.LanguageModelChatMessage.User(bootstrapPrompt));
-                  } else {
-                    const history = msg.conversationHistory || [];
-                    const historyBudget = Math.floor(charBudget * 0.30);
-                    let historyChars = 0, startIdx = history.length;
-                    for (let i = history.length - 1; i >= 0; i--) {
-                      const turnChars = (history[i].content || '').length;
-                      if (historyChars + turnChars > historyBudget) break;
-                      historyChars += turnChars;
-                      startIdx = i;
-                    }
-                    if (startIdx % 2 !== 0 && startIdx > 0) startIdx++;
-                    for (const turn of history.slice(startIdx)) {
-                      messages.push(turn.role === 'user'
-                        ? vscode.LanguageModelChatMessage.User(turn.content)
-                        : vscode.LanguageModelChatMessage.Assistant(turn.content));
-                    }
-                    messages.push(vscode.LanguageModelChatMessage.User(msg.prompt));
-                  }
-                }
-
-                // ── Tool-use loop ─────────────────────────────
                 const tokenSource = new vscode.CancellationTokenSource();
                 activeTokenSources.set(configDir, tokenSource);
-                const accumulatedOps = [];
-                const capturedImages = []; // base64 images from execute_python
-                const executedCells = []; // {code, output} pairs from execute_python
-                const MAX_TOOL_TURNS = 10;
-                let finalAnswer = '';
-
-                // Check if tool-use API is available (VS Code 1.95+)
-                const hasToolSupport = !!(vscode.LanguageModelToolCallPart && vscode.LanguageModelToolResultPart);
-
-                // Helper: execute a single tool call via the unified ecosystem
-                const executeToolCall = async (call) => {
-                  const input = call.input || {};
-                  const tool = toolsByName.get(call.name);
-                  if (!tool) return `Unknown tool: ${call.name}`;
-
-                  try {
-                    if (tool.context === 'extension') {
-                      const handler = loadExtensionTool(tool);
-                      let result = await handler(input, { execFileAsync, configDir, panel, modelName: model.name || model.family, schemata });
-                      // Capture execute_python code + output for notebook mode
-                      if (call.name === 'execute_python' && input.code) {
-                        executedCells.push({ code: input.code, output: typeof result === 'string' ? result : '' });
-                      }
-                      // Capture IMG: base64 images from Python output
-                      if (typeof result === 'string') {
-                        result = result.replace(/IMG:([A-Za-z0-9+/=\s]{20,})/g, (_, b64) => {
-                          capturedImages.push(b64.replace(/\s/g, ''));
-                          return '[plot generated]';
-                        });
-                      }
-                      return result;
-                    } else {
-                      accumulatedOps.push({ fn: call.name, input });
-                      return `Done: ${call.name}(${JSON.stringify(input).slice(0, 200)})`;
-                    }
-                  } catch (e) {
-                    return `Error in ${call.name}: ${e.message}`;
-                  }
-                };
-
-                // Try tool-use first, with robust fallback
-                let usedTools = false;
-
-                // ── Direct API path ──────────────────────────
-                if (isDirectAPI) {
-                  const directMessages = [];
-                  if (!isBootstrap) {
-                    const history = msg.conversationHistory || [];
-                    const historyBudget = Math.floor(charBudget * 0.30);
-                    let historyChars = 0, startIdx = history.length;
-                    for (let i = history.length - 1; i >= 0; i--) {
-                      const turnChars = (history[i].content || '').length;
-                      if (historyChars + turnChars > historyBudget) break;
-                      historyChars += turnChars;
-                      startIdx = i;
-                    }
-                    if (startIdx % 2 !== 0 && startIdx > 0) startIdx++;
-                    for (const turn of history.slice(startIdx)) {
-                      directMessages.push({ role: turn.role === 'user' ? 'user' : 'assistant', content: turn.content });
-                    }
-                  }
-                  const userPrompt = isBootstrap
-                    ? fs.readFileSync(path.join(context.extensionPath, 'ecosystem', 'prompts', 'init.md'), 'utf8')
-                    : msg.prompt;
-                  directMessages.push({ role: 'user', content: userPrompt });
-
-                  try {
-                    const directResult = await runDirectAPILoop(
-                      modelId, systemPrompt, directMessages, toolSchemas,
-                      toolsByName, accumulatedOps, capturedImages, executedCells,
-                      configDir, panel, tokenSource.token, schemata
-                    );
-                    finalAnswer = directResult.answer;
-                    // Send token usage to webview
-                    if (directResult.usage && (directResult.usage.input > 0 || directResult.usage.output > 0)) {
+                const agentResult = isBootstrap
+                  ? await janeRuntime.bootstrapSession({
+                    modelId: msg.modelId || '',
+                    schemata: msg.schemata || [],
+                    dashboardState: msg.dashboardState || null,
+                    apiKeys,
+                    vscodeApi: vscode,
+                    panel,
+                    token: tokenSource.token,
+                    execFileAsync,
+                    persistConfigChanges: false,
+                    onUsage: (usage) => {
                       panel.webview.postMessage({
                         type: 'tokenUsage',
-                        input: directResult.usage.input,
-                        output: directResult.usage.output,
+                        input: usage.input,
+                        output: usage.output,
                       });
-                    }
-                    usedTools = accumulatedOps.length > 0;
-                  } catch (e) {
-                    if (e.message === 'cancelled') return;
-                    throw e;
-                  }
+                    },
+                  })
+                  : await janeRuntime.runSessionTurn({
+                    prompt: msg.prompt || '',
+                    modelId: msg.modelId || '',
+                    schemata: msg.schemata || [],
+                    dashboardState: msg.dashboardState || null,
+                    apiKeys,
+                    vscodeApi: vscode,
+                    panel,
+                    token: tokenSource.token,
+                    execFileAsync,
+                    persistConfigChanges: false,
+                    onUsage: (usage) => {
+                      panel.webview.postMessage({
+                        type: 'tokenUsage',
+                        input: usage.input,
+                        output: usage.output,
+                      });
+                    },
+                  });
 
-                } else if (hasToolSupport) {
-                  try {
-                    const toolOptions = {
-                      tools: toolSchemas,
-                      justification: 'Selva agent needs tools to modify config values, lock fields, and run analysis.',
-                    };
-
-                    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-                      const response = await model.sendRequest(messages, toolOptions, tokenSource.token);
-                      const toolCalls = [];
-                      let turnText = '';
-
-                      // Use response.stream if available, else response.text
-                      if (response.stream) {
-                        for await (const part of response.stream) {
-                          if (part instanceof vscode.LanguageModelTextPart) {
-                            turnText += part.value;
-                          } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                            toolCalls.push(part);
-                          }
-                        }
-                      } else {
-                        // stream not available — text-only mode
-                        for await (const chunk of response.text) { turnText += chunk; }
-                      }
-
-                      // Collect text: skip preamble from first turn (before any tools),
-                      // keep everything after (model reflecting on tool results)
-                      if (toolCalls.length === 0) {
-                        // Final turn — always include
-                        finalAnswer += turnText;
-                        break;
-                      }
-                      // First turn with tools: skip the "I'll do X" preamble
-                      // Later turns with tools: keep (model commenting on intermediate results)
-                      if (usedTools && turnText) finalAnswer += turnText;
-
-                      usedTools = true;
-                      const assistantParts = [];
-                      if (turnText) assistantParts.push(new vscode.LanguageModelTextPart(turnText));
-                      assistantParts.push(...toolCalls);
-                      messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-
-                      for (const call of toolCalls) {
-                        const result = await executeToolCall(call);
-                        messages.push(
-                          vscode.LanguageModelChatMessage.User([
-                            new vscode.LanguageModelToolResultPart(call.callId, [
-                              new vscode.LanguageModelTextPart(result)
-                            ])
-                          ])
-                        );
-                      }
-                    }
-                  } catch (toolErr) {
-                    // Tool-use failed — clear any partial answer and fall through to JSON fallback
-                    if (!finalAnswer) finalAnswer = '';
-                    usedTools = false;
-                  }
-                }
-
-                // Fallback: if no tools were used, try JSON parsing (old protocol)
-                if (!usedTools && accumulatedOps.length === 0) {
-                  let raw = finalAnswer;
-                  if (!raw) {
-                    const response = await model.sendRequest(messages, {}, tokenSource.token);
-                    raw = '';
-                    for await (const chunk of response.text) { raw += chunk; }
-                  }
-                  if (!raw || !raw.trim()) {
-                    panel.webview.postMessage({ type: resultType, ops: [], answer: null, error: isBootstrap ? undefined : 'Model returned an empty response.' });
-                    return;
-                  }
-                  const extracted = extractOpsFromText(raw);
-                  console.log('[Selva] JSON fallback — raw:', raw.slice(0, 300), '→ ops:', extracted.ops.length, 'answer:', (extracted.answer || '').slice(0, 100));
-                  finalAnswer = extracted.answer;
-                  accumulatedOps.push(...extracted.ops);
-                }
-
-                // ── Auto-execute Python code blocks (for models without tool support) ──
-                if (capturedImages.length === 0 && finalAnswer) {
-                  // Detect fenced or unfenced Python plotting code
-                  let pyCode = null;
-                  const pyFenced = finalAnswer.match(/```(?:python|execute_python|py)\n([\s\S]*?)```/);
-                  if (pyFenced && /(?:plt\.|matplotlib|savefig|\.plot\(|\.scatter\(|\.bar\(|\.hist\()/.test(pyFenced[1])) {
-                    pyCode = pyFenced[1];
-                  } else {
-                    const unfenced = detectUnfencedPython(finalAnswer);
-                    if (unfenced.hasPython && /plt\./m.test(unfenced.code)) {
-                      pyCode = unfenced.code;
-                    }
-                  }
-                  if (pyCode) {
-                    pyCode = fixPythonForHeadless(pyCode);
-                    try {
-                      const pyTool = toolsByName.get('execute_python');
-                      const pyHandler = pyTool ? loadExtensionTool(pyTool) : null;
-                      const pyResult = pyHandler ? await pyHandler({ code: pyCode }, { execFileAsync, configDir, panel }) : '';
-                      const imgMatch = (pyResult || '').match(/IMG:([A-Za-z0-9+/=\s]{20,})/);
-                      if (imgMatch) {
-                        capturedImages.push(imgMatch[1].replace(/\s/g, ''));
-                      }
-                    } catch { /* Python execution failed — leave code block as-is */ }
-                  }
-                }
-
-                // ── Execute extension-context ops from JSON fallback ──
-                console.log('[Selva] Pre-interception ops:', accumulatedOps.length, accumulatedOps.map(o => o.fn));
-                const webviewOps = [];
-                for (const op of accumulatedOps) {
-                  const toolDef = toolsByName.get(op.fn);
-                  if (toolDef && toolDef.context === 'extension') {
-                    // Execute extension-context tool directly
-                    try {
-                      const handler = loadExtensionTool(toolDef);
-                      // Ops are already normalized to { fn, input } by extractOpsFromText
-                      const input = op.input || {};
-                      let result = await handler(input, { execFileAsync, configDir, panel, modelName: 'json-fallback', schemata });
-                      // Capture images from Python execution
-                      if (typeof result === 'string') {
-                        result = result.replace(/IMG:([A-Za-z0-9+/=\s]{20,})/g, (_, b64) => {
-                          capturedImages.push(b64.replace(/\s/g, ''));
-                          return '[plot generated]';
-                        });
-                      }
-                    } catch (e) { console.error('[Selva] Extension tool failed:', op.fn, e.message); }
-                  } else {
-                    webviewOps.push(op); // pass to webview
-                  }
-                }
-                // Replace accumulatedOps with only webview ops
-                console.log('[Selva] Post-interception: webview ops:', webviewOps.length, 'extension ops executed:', accumulatedOps.length - webviewOps.length);
-                accumulatedOps.length = 0;
-                accumulatedOps.push(...webviewOps);
-
-                // ── Inject captured images into answer ────────
-                if (capturedImages.length > 0) {
-                  const imgTags = capturedImages.map(b64 => `IMG:${b64}`).join('\n\n');
-                  finalAnswer = (finalAnswer || '') + '\n\n' + imgTags;
-                }
-
-                // ── Send result ───────────────────────────────
                 activeTokenSources.delete(configDir);
                 panel.webview.postMessage({
-                  type: resultType,
-                  answer: finalAnswer || null,
-                  summary: accumulatedOps.length > 0 ? `Executed ${accumulatedOps.length} operation${accumulatedOps.length > 1 ? 's' : ''}.` : null,
-                  ops: accumulatedOps,
-                  executedCells: executedCells.length > 0 ? executedCells : undefined,
+                  type: 'janeSessionResult',
+                  mode: isBootstrap ? 'bootstrap' : 'turn',
+                  answer: agentResult.answer,
+                  summary: agentResult.summary,
+                  ops: agentResult.ops,
+                  executedCells: agentResult.executedCells,
+                  artifacts: agentResult.artifacts,
+                  session: agentResult.session,
+                  entry: agentResult.entry,
+                  modelId: agentResult.modelId,
+                  error: agentResult.error,
                 });
 
               } catch (e) {
                 activeTokenSources.delete(configDir);
                 // Don't send error for user-initiated cancellations
                 if (e.message && e.message.includes('cancelled')) return;
-                panel.webview.postMessage({ type: resultType, ops: [], answer: null, error: isBootstrap ? undefined : (e.message || String(e)) });
+                panel.webview.postMessage({
+                  type: 'janeSessionResult',
+                  mode: isBootstrap ? 'bootstrap' : 'turn',
+                  ops: [],
+                  answer: null,
+                  error: isBootstrap ? undefined : (e.message || String(e)),
+                });
               }
             })();
             break;
@@ -958,37 +1125,45 @@ function activate(context) {
           case 'editCellCode': {
             (async () => {
               try {
-                const prompt = `Modify the following Python code according to this instruction: "${msg.instruction}"\n\nCode:\n\`\`\`python\n${msg.code}\n\`\`\`\n\nReturn ONLY the modified Python code. No explanation, no fences, no markdown — just the raw code.`;
+                const sessionInstructions = janeRuntime.getSession().additionalInstructions || '';
+                let result;
 
-                const isDirectAPI = msg.modelId && msg.modelId.startsWith('direct:');
-                let result = '';
-
-                if (isDirectAPI) {
-                  const isAnthropic = msg.modelId.startsWith('direct:claude');
-                  const apiKey = isAnthropic ? apiKeys.anthropic : apiKeys.openai;
-                  if (!apiKey) throw new Error('No API key');
-                  if (isAnthropic) {
-                    const resp = await callAnthropicAPI(apiKey, msg.modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
-                    result = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-                  } else {
-                    const resp = await callOpenAIAPI(apiKey, msg.modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
-                    result = resp.choices?.[0]?.message?.content || '';
-                  }
-                } else if (vscode.lm) {
-                  let allModels = await vscode.lm.selectChatModels({});
-                  let model = msg.modelId ? allModels.find(m => m.id === msg.modelId) : allModels[0];
-                  if (!model && allModels.length) model = allModels[0];
-                  if (model) {
-                    const messages = [vscode.LanguageModelChatMessage.User(prompt)];
-                    const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-                    for await (const chunk of response.text) { result += chunk; }
-                  }
+                if (msg.agentId) {
+                  result = await runExternalCellEditWithRetries({
+                    agentId: msg.agentId,
+                    code: msg.code || '',
+                    instruction: msg.instruction || '',
+                    output: msg.output || '',
+                    configDir,
+                    sessionInstructions,
+                    panel,
+                  });
+                } else {
+                  result = await runLegacyInternalCellEdit({
+                    code: msg.code || '',
+                    instruction: msg.instruction || '',
+                    modelId: msg.modelId || '',
+                  });
                 }
-                // Strip fences if model added them
-                result = result.trim().replace(/^```(?:python)?\s*\n?/i, '').replace(/\n?\s*```$/,'').trim();
-                panel.webview.postMessage({ type: 'editCellCodeResult', code: result || null });
+
+                panel.webview.postMessage({
+                  type: 'editCellCodeResult',
+                  requestId: msg.requestId || '',
+                  cellId: msg.cellId || '',
+                  code: result.code || null,
+                  output: Object.prototype.hasOwnProperty.call(result, 'output') ? result.output : undefined,
+                  attempts: result.attempts || 1,
+                  validated: !!result.validated,
+                  validationError: result.error || '',
+                  agentId: msg.agentId || '',
+                });
               } catch (e) {
-                panel.webview.postMessage({ type: 'editCellCodeResult', error: e.message });
+                panel.webview.postMessage({
+                  type: 'editCellCodeResult',
+                  requestId: msg.requestId || '',
+                  cellId: msg.cellId || '',
+                  error: e.message,
+                });
               }
             })();
             break;
@@ -996,21 +1171,37 @@ function activate(context) {
           case 'executeCell': {
             (async () => {
               try {
-                let code = fixPythonForHeadless(msg.code);
-                const allTools = loadAllTools(context.extensionPath);
-                const pyTool = allTools.find(t => t.name === 'execute_python');
-                if (!pyTool) throw new Error('execute_python tool not found');
-                const handler = loadExtensionTool(pyTool);
-                const result = await handler({ code }, { execFileAsync, configDir, panel });
-                panel.webview.postMessage({ type: 'executeCellResult', result });
+                const result = await executeNotebookPython({
+                  code: prepareNotebookPythonExecution(msg.code),
+                  configDir,
+                  panel,
+                });
+                panel.webview.postMessage({
+                  type: 'executeCellResult',
+                  requestId: msg.requestId || '',
+                  cellId: msg.cellId || '',
+                  result,
+                });
               } catch (e) {
-                panel.webview.postMessage({ type: 'executeCellResult', error: e.message || String(e) });
+                panel.webview.postMessage({
+                  type: 'executeCellResult',
+                  requestId: msg.requestId || '',
+                  cellId: msg.cellId || '',
+                  error: e.message || String(e),
+                });
               }
             })();
             break;
           }
-          case 'saveAdditionalInstructions': {
+          case 'saveAdditionalInstructions':
+          case 'janeSessionSetInstructions': {
+            janeRuntime.setSessionInstructions(msg.text || '');
             context.globalState.update('additionalInstructions', msg.text || '');
+            break;
+          }
+          case 'setAgentModel':
+          case 'janeSessionSetModel': {
+            janeRuntime.setSessionModel(msg.modelId || '');
             break;
           }
           case 'setApiKey': {

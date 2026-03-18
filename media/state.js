@@ -59,6 +59,18 @@ const THEMES = {
             '--badge-null-bg':'#fef3c7',  '--badge-null-fg':'#92400e',
             '--badge-list-bg':'#fce7f3',  '--badge-list-fg':'#be185d' }
   },
+  jupyter: {
+    label: 'Jupyter', bg: '#ffffff',
+    defaults: { labelColor: '#444444', fieldColor: '#337ab7', accentColor: '#F37626' },
+    vars: { '--bg-0':'#ffffff','--bg-1':'#f7f7f7','--bg-2':'#f5f5f5','--bg-3':'#e6e6e6',
+            '--border':'#dddddd','--text-0':'#222222','--text-1':'#444444','--text-2':'#777777',
+            '--badge-str-bg':'#e8f4e6',   '--badge-str-fg':'#2a6a2a',
+            '--badge-float-bg':'#e7f1fb', '--badge-float-fg':'#337ab7',
+            '--badge-int-bg':'#eef5fd',   '--badge-int-fg':'#2a6496',
+            '--badge-bool-bg':'#fef3e7',  '--badge-bool-fg':'#F37626',
+            '--badge-null-bg':'#f8f0d8',  '--badge-null-fg':'#8a6d3b',
+            '--badge-list-bg':'#f6edf9',  '--badge-list-fg':'#8e44ad' }
+  },
   desert: {
     label: 'Desert', bg: '#f5f0e8',
     defaults: { labelColor: '#5c3d2e', fieldColor: '#c07050', accentColor: '#c07050' },
@@ -108,13 +120,24 @@ const state = {
   _agentPending: null,
   _bootstrapPending: null,
   _bootstrapDone: false,
+  _bootstrapRestore: null,
+  _bootstrapRestored: false,
   conversationHistory: [],  // [{role:'user'|'assistant', content:string}]
   agentModelId: '',
   availableModels: [],
+  availableCodingAgents: [],
+  selectedCodingAgentId: '',
   fileTypes: {},
   lockedFields: new Set(),
   defaultPromptTemplate: '',
   sessionTokens: 0,  // accumulated token count for this session
+  sessionEntries: [],
+  trails: [],
+  activeTrailId: '',
+  activeTrailName: '',
+  activeTrailPath: '',
+  _pendingExternalDrafts: new Map(),
+  _appliedExternalDraftIds: new Set(),
   // ── Generic hooks for agent-created tools ──
   hooks: {
     // Per-field overrides: key (file:JSON(path)) → {min, max, step, hidden, readOnly, style, label, ...}
@@ -170,7 +193,8 @@ let settings = { ...defaultSettings };
 
 // Detect macOS for keyboard shortcut hint
 if (navigator.userAgent.includes('Mac') || navigator.userAgentData?.platform === 'macOS') {
-  document.getElementById('mod-key').textContent = '\u2318';
+  const modKeyEl = document.getElementById('mod-key');
+  if (modKeyEl) modKeyEl.textContent = '\u2318';
 }
 
 function loadSettings() {
@@ -370,6 +394,7 @@ function onSettingChange() {
   applySettings();
   saveSettings();
   if (state.activeFile) renderEditor();
+  if (typeof updateNotebookComposerVisibility === 'function') updateNotebookComposerVisibility();
 }
 
 function selectTheme(themeName) {

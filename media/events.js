@@ -91,8 +91,10 @@ function refreshFieldState(fid) {
 function updateButtons() {
   const activeMod = isModified(state.activeFile);
   const anyMod = state.files.some(f => state.configs[f] && isModified(f));
-  document.getElementById('save-btn').disabled = !anyMod;
-  document.getElementById('reset-btn').disabled = !activeMod;
+  const saveBtn = document.getElementById('save-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  if (saveBtn) saveBtn.disabled = !anyMod;
+  if (resetBtn) resetBtn.disabled = !activeMod;
   const indicator = document.querySelector('.btn-save-indicator');
   if (indicator) {
     const n = state.files.filter(f => state.configs[f] && isModified(f)).length;
@@ -117,6 +119,339 @@ function resetFile() {
   config.current = deepClone(config.original);
   renderEditor(); renderTabs(); updateButtons();
   toast('Reset ' + state.activeFile, 'success');
+}
+
+function applySessionSnapshot(session) {
+  const snap = session || {};
+  const dashboard = snap.dashboardState || {};
+
+  state.conversationHistory = Array.isArray(snap.conversationHistory) ? snap.conversationHistory.slice() : [];
+  state.sessionEntries = Array.isArray(snap.entries) ? snap.entries.slice() : [];
+  state.sessionTokens = snap.sessionTokens || 0;
+  state.agentModelId = snap.agentModelId || state.agentModelId;
+  state._bootstrapDone = !!(snap.bootstrap && snap.bootstrap.done);
+  state._bootstrapRestore = snap.bootstrap || null;
+  state._bootstrapRestored = false;
+
+  state.fileTypes = { ...(dashboard.fileTypes || {}) };
+  state.lockedFields = new Set(Array.isArray(dashboard.lockedFields) ? dashboard.lockedFields : []);
+  state.pinned = deepClone(dashboard.pinnedFields || {});
+
+  const configFiles = state.files.filter((file) => state.fileTypes[file] !== 'data');
+  const dataFiles = state.files.filter((file) => state.fileTypes[file] === 'data');
+
+  const requestedConfig = dashboard.activeConfigFile || null;
+  const requestedData = dashboard.activeDataFile || null;
+  state.activeConfigFile = requestedConfig && configFiles.includes(requestedConfig)
+    ? requestedConfig
+    : (configFiles[0] || null);
+  state.activeDataFile = requestedData && dataFiles.includes(requestedData)
+    ? requestedData
+    : (dataFiles[0] || null);
+  state.activeFile = state.activeConfigFile || state.activeDataFile || state.activeFile || null;
+
+  updateTokenDisplay();
+  const prev = vscode.getState() || {};
+  vscode.setState({ ...prev, pinned: state.pinned });
+}
+
+function rebuildChatLogFromSession() {
+  const log = document.getElementById('agent-chat-log');
+  if (log) {
+    log.innerHTML = '';
+    log.classList.add('hidden');
+  }
+  for (const entry of state.sessionEntries) {
+    addChatEntry(
+      entry.question || 'session',
+      entry.answer || entry.summary || '',
+      null,
+      !!entry.isError,
+      entry.executedCells || null,
+      {
+        entryId: entry.id || '',
+        instant: true,
+        skipPersist: true,
+        timestamp: entry.timestamp || '',
+        cells: Array.isArray(entry.cells) ? entry.cells : null,
+      }
+    );
+  }
+}
+
+function renderDashboardFromSession() {
+  const dataFiles = state.files.filter((file) => state.fileTypes[file] === 'data');
+  document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
+  renderTabs();
+  renderEditors();
+  renderPinnedBar();
+  updateButtons();
+  updateAgentModelLabel();
+}
+
+function updateTrailControls() {
+  const select = document.getElementById('trail-select');
+  const status = document.getElementById('trail-status');
+  const nameInput = document.getElementById('trail-name-input');
+  if (!select) return;
+
+  const trails = Array.isArray(state.trails) ? state.trails : [];
+  select.innerHTML = trails.map((trail) => {
+    const suffix = trail.bootstrapDone ? '' : ' • needs bootstrap';
+    return `<option value="${escapeHtml(trail.id)}">${escapeHtml((trail.name || 'Trail') + suffix)}</option>`;
+  }).join('');
+  select.disabled = trails.length === 0;
+  if (state.activeTrailId) select.value = state.activeTrailId;
+  if (nameInput && trails.length === 0) nameInput.value = '';
+
+  if (status) {
+    if (!trails.length) {
+      status.textContent = 'Trails are persisted notebook lineages for this workspace.';
+      return;
+    }
+    const active = trails.find((trail) => trail.id === state.activeTrailId) || trails[0];
+    const updatedAt = active && active.updatedAt ? new Date(active.updatedAt).toLocaleString() : '';
+    const detail = active && active.bootstrapDone ? 'bootstrapped' : 'needs bootstrap';
+    status.textContent = `${active.name || 'Trail'} · ${detail}${updatedAt ? ` · updated ${updatedAt}` : ''}`;
+    if (nameInput && document.activeElement !== nameInput) {
+      nameInput.value = active && active.name ? active.name : '';
+    }
+  }
+}
+
+function applyTrailStatePayload(trails, activeTrail) {
+  state.trails = Array.isArray(trails) ? trails.slice() : [];
+  state.activeTrailId = activeTrail && activeTrail.id ? activeTrail.id : '';
+  state.activeTrailName = activeTrail && activeTrail.name ? activeTrail.name : '';
+  state.activeTrailPath = activeTrail && activeTrail.path ? activeTrail.path : '';
+  updateTrailControls();
+}
+
+function resetLoadedConfigDrafts() {
+  for (const config of Object.values(state.configs)) {
+    if (!config) continue;
+    config.current = deepClone(config.original);
+  }
+}
+
+function finalizeHydratedSession() {
+  if (state._bootstrapRestore && !state._bootstrapRestored) {
+    const ops = state._bootstrapRestore.ops || [];
+    if (ops.length > 0) executeOps(ops);
+    state._bootstrapRestored = true;
+    const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
+    const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
+    if (!state.activeConfigFile || state.fileTypes[state.activeConfigFile] === 'data') {
+      state.activeConfigFile = configFiles[0] || null;
+    }
+    if (!state.activeDataFile && dataFiles.length > 0) {
+      state.activeDataFile = dataFiles[0];
+    }
+    state.activeFile = state.activeConfigFile || state.activeDataFile || state.activeFile;
+    document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
+    renderTabs();
+    renderEditors();
+    renderPinnedBar();
+    updateButtons();
+  } else {
+    _triggerBootstrap();
+  }
+}
+
+function hydrateTrailSession(session, options = {}) {
+  if (options.resetLoadedConfigs) resetLoadedConfigDrafts();
+  state._pendingExternalDrafts = new Map();
+  state._appliedExternalDraftIds = new Set();
+  state._agentPending = null;
+  applySessionSnapshot(session || {});
+  queueExternalDrafts((session || {}).pendingExternalDrafts || []);
+  rebuildChatLogFromSession();
+
+  if (state.files.length === 0) {
+    renderDashboardFromSession();
+    return;
+  }
+
+  state._bootstrapPending = new Set(state.files.filter((file) => !state.configs[file]));
+  for (const file of state._bootstrapPending) {
+    vscode.postMessage({ type: 'readConfig', filename: file });
+  }
+  applyPendingExternalDrafts();
+  if (state._bootstrapPending.size === 0) {
+    finalizeHydratedSession();
+  }
+}
+
+function queueExternalDrafts(drafts) {
+  for (const draft of (drafts || [])) {
+    if (!draft || !draft.id || !Array.isArray(draft.ops) || draft.ops.length === 0) continue;
+    const id = String(draft.id);
+    if (state._appliedExternalDraftIds.has(id) || state._pendingExternalDrafts.has(id)) continue;
+    state._pendingExternalDrafts.set(id, {
+      id,
+      note: draft.note || '',
+      ops: draft.ops,
+    });
+  }
+}
+
+function draftFilesLoaded(draft) {
+  return (draft.ops || []).every((op) => {
+    const file = op && op.input ? op.input.file : null;
+    return !file || !!state.configs[file];
+  });
+}
+
+function draftOpsRegistered(draft) {
+  return (draft.ops || []).every((op) => !!agentOps[op.fn]);
+}
+
+function applyPendingExternalDrafts() {
+  const readyDrafts = [...state._pendingExternalDrafts.values()].filter(
+    (draft) => draftFilesLoaded(draft) && draftOpsRegistered(draft)
+  );
+  if (readyDrafts.length === 0) return;
+
+  const appliedIds = [];
+  let stagedValueOps = 0;
+  for (const draft of readyDrafts) {
+    executeOps(draft.ops || []);
+    state._pendingExternalDrafts.delete(draft.id);
+    state._appliedExternalDraftIds.add(draft.id);
+    appliedIds.push(draft.id);
+    stagedValueOps += (draft.ops || []).filter((op) => op.fn === 'setValue').length;
+  }
+
+  renderTabs();
+  renderEditors();
+  renderPinnedBar();
+  updateButtons();
+  updateAgentModelLabel();
+
+  const hasData = state.files.some((file) => state.fileTypes[file] === 'data');
+  document.getElementById('data-panel').classList.toggle('hidden', !hasData);
+
+  if (appliedIds.length > 0) {
+    vscode.postMessage({ type: 'ackExternalDrafts', ids: appliedIds });
+  }
+  if (stagedValueOps > 0) {
+    const noun = stagedValueOps === 1 ? 'change' : 'changes';
+    toast(`Staged ${stagedValueOps} external ${noun}. Use Save to commit.`, 'success');
+  }
+}
+
+function handleBootstrapResultMessage(msg) {
+  state._bootstrapDone = true;
+  setAgentBusy(false);
+  const ops = msg.ops || [];
+  if (ops.length > 0) {
+    executeOps(ops);
+  }
+
+  const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
+  const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
+
+  if (state.activeConfigFile && state.fileTypes[state.activeConfigFile] === 'data') {
+    state.activeDataFile = state.activeConfigFile;
+    state.activeConfigFile = null;
+  }
+  if (!state.activeConfigFile || state.fileTypes[state.activeConfigFile] === 'data') {
+    state.activeConfigFile = configFiles[0] || null;
+  }
+  state.activeFile = state.activeConfigFile || state.activeDataFile;
+  if (!state.activeDataFile && dataFiles.length > 0) {
+    state.activeDataFile = dataFiles[0];
+  }
+
+  document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
+  renderTabs();
+  renderEditors();
+  renderPinnedBar();
+  updateButtons();
+
+  state.conversationHistory.push(
+    { role: 'user', content: '[Bootstrap: initialize session, classify files, pin key fields]' },
+    { role: 'assistant', content: msg.answer || 'Session initialized.' }
+  );
+
+  if (msg.answer) {
+    state._lastQuestion = 'bootstrap';
+    addChatEntry('session initialized', msg.answer, null, false);
+  }
+}
+
+function handleAgentResultMessage(msg) {
+  setAgentBusy(false);
+  const question = state._lastQuestion || '\u2026';
+  console.log('[Selva] agentResult:', { answer: (msg.answer || '').slice(0, 200), opsCount: (msg.ops || []).length, summary: msg.summary });
+
+  if (msg.error) {
+    toast('Agent: ' + msg.error, 'error');
+    addChatEntry(question, 'Error: ' + msg.error, null, true);
+    return;
+  }
+
+  state.conversationHistory.push({ role: 'user', content: question });
+  const agentResponse = msg.answer || msg.summary || '';
+  state.conversationHistory.push({ role: 'assistant', content: agentResponse });
+
+  let answer = msg.answer || '';
+  const entryCells = (settings.notebookMode && Array.isArray(msg.entry && msg.entry.cells) && msg.entry.cells.length > 0)
+    ? msg.entry.cells
+    : null;
+  const executedCells = (!entryCells && settings.notebookMode && msg.executedCells && msg.executedCells.length > 0)
+    ? msg.executedCells
+    : null;
+  if (executedCells) {
+    answer = answer
+      .split(/\r?\n/)
+      .filter((line) => !/^IMG:[A-Za-z0-9+/=]+$/.test(line))
+      .join('\n')
+      .trim();
+  }
+
+  if ((answer || entryCells || executedCells) && (!msg.ops || msg.ops.length === 0)) {
+    addChatEntry(question, answer, null, false, executedCells, entryCells ? { cells: entryCells } : undefined);
+    return;
+  }
+  const ops = msg.ops || [];
+  if (ops.length === 0) {
+    addChatEntry(question, msg.summary || 'No changes needed.', [], false);
+    toast('Agent made no changes', 'info');
+    return;
+  }
+
+  const { results, diffs, affectedFiles } = executeOps(ops);
+  const failedOps = results.filter(r => typeof r === 'string' && r.startsWith('unknown op:'));
+  if (failedOps.length > 0) {
+    console.warn('[Selva] Failed ops:', failedOps, 'Registered tools:', Object.keys(agentOps));
+  }
+  const answerText = answer || '';
+  const summaryText = failedOps.length > 0
+    ? `${failedOps.length} op(s) failed: tools not registered. Try reloading the dashboard.`
+    : (msg.summary || `Executed ${ops.length} operation${ops.length > 1 ? 's' : ''}.`);
+
+  if (diffs.length > 0 || affectedFiles.size > 0) {
+    toast(`Agent: ${ops.length} op${ops.length > 1 ? 's' : ''} across ${affectedFiles.size} file${affectedFiles.size > 1 ? 's' : ''}`, 'success');
+  }
+
+  const displayText = answerText ? answerText + '\n' + summaryText : summaryText;
+  addChatEntry(
+    question,
+    displayText,
+    diffs.length > 0 ? diffs : [],
+    false,
+    executedCells,
+    entryCells ? { cells: entryCells } : undefined
+  );
+
+  renderTabs();
+  renderEditors();
+  renderPinnedBar();
+  updateButtons();
+
+  const hasData = state.files.some(f => state.fileTypes[f] === 'data');
+  document.getElementById('data-panel').classList.toggle('hidden', !hasData);
 }
 
 // ── Message handler from extension host ────────────────────
@@ -153,21 +488,15 @@ window.addEventListener('message', event => {
         if (editor) editor.value = msg.additionalInstructions;
         updateSyspromptSparks();
       }
-      renderTabs();
-      if (state.files.length > 0) {
-        // Load all files for bootstrap
-        state._bootstrapPending = new Set(state.files);
-        for (const file of state.files) {
-          if (!state.configs[file]) {
-            vscode.postMessage({ type: 'readConfig', filename: file });
-          } else {
-            state._bootstrapPending.delete(file);
-          }
-        }
-        // If all already loaded (unlikely on first init), trigger bootstrap now
-        if (state._bootstrapPending.size === 0) {
-          _triggerBootstrap();
-        }
+      const session = msg.session || {};
+      applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
+      state.availableCodingAgents = Array.isArray(msg.codingAgents) ? msg.codingAgents.slice() : [];
+      updateCodingAgentControls(msg.defaultCodingAgentId || '');
+      hydrateTrailSession(session);
+      if ((!session.dashboardState || !session.dashboardState.pinnedFields || Object.keys(session.dashboardState.pinnedFields).length === 0)
+          && msg.pinnedFields && Object.keys(msg.pinnedFields).length > 0) {
+        state.pinned = msg.pinnedFields;
+        renderPinnedBar();
       }
       break;
     }
@@ -186,6 +515,7 @@ window.addEventListener('message', event => {
       if (state.fileTypes[msg.filename] === 'data') {
         lockAllFieldsInFile(msg.filename);
       }
+      applyPendingExternalDrafts();
       // Check if this completes the bootstrap loading phase
       if (state._bootstrapPending && state._bootstrapPending.has(msg.filename)) {
         state._bootstrapPending.delete(msg.filename);
@@ -200,7 +530,7 @@ window.addEventListener('message', event => {
           }
         }
         if (state._bootstrapPending.size === 0) {
-          _triggerBootstrap();
+          finalizeHydratedSession();
         }
       } else if (state._bgLoads.has(msg.filename)) {
         state._bgLoads.delete(msg.filename);
@@ -248,46 +578,7 @@ window.addEventListener('message', event => {
       break;
     }
     case 'bootstrapResult': {
-      state._bootstrapDone = true;
-      setAgentBusy(false);
-      const ops = msg.ops || [];
-      if (ops.length > 0) {
-        executeOps(ops);
-      }
-
-      // After ops applied, update active files based on new classifications
-      const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
-      const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
-
-      if (state.activeConfigFile && state.fileTypes[state.activeConfigFile] === 'data') {
-        state.activeDataFile = state.activeConfigFile;
-        state.activeConfigFile = null;
-      }
-      if (!state.activeConfigFile || state.fileTypes[state.activeConfigFile] === 'data') {
-        state.activeConfigFile = configFiles[0] || null;
-      }
-      state.activeFile = state.activeConfigFile || state.activeDataFile;
-      if (!state.activeDataFile && dataFiles.length > 0) {
-        state.activeDataFile = dataFiles[0];
-      }
-
-      document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
-      renderTabs();
-      renderEditors();
-      renderPinnedBar();
-      updateButtons();
-
-      // Add bootstrap to conversation history (first turn, natural text)
-      state.conversationHistory.push(
-        { role: 'user', content: '[Bootstrap: initialize session, classify files, pin key fields]' },
-        { role: 'assistant', content: msg.answer || 'Session initialized.' }
-      );
-
-      // Show welcome message in chat log
-      if (msg.answer) {
-        state._lastQuestion = 'bootstrap';
-        addChatEntry('session initialized', msg.answer, null, false);
-      }
+      handleBootstrapResultMessage(msg);
       break;
     }
     case 'registerTools': {
@@ -295,6 +586,7 @@ window.addEventListener('message', event => {
       for (const tool of (msg.tools || [])) {
         registerTool(tool.name, tool.code);
       }
+      applyPendingExternalDrafts();
       break;
     }
     case 'registerTool': {
@@ -302,6 +594,7 @@ window.addEventListener('message', event => {
       if (msg.name && msg.code) {
         registerTool(msg.name, msg.code);
       }
+      applyPendingExternalDrafts();
       break;
     }
     case 'tokenUsage': {
@@ -322,66 +615,55 @@ window.addEventListener('message', event => {
       updateAgentModelLabel();
       break;
     }
+    case 'codingAgentConnected': {
+      const label = msg.agent && msg.agent.label ? msg.agent.label : 'Coding agent';
+      if (msg.launchMode === 'terminal') {
+        toast(`${label} terminal opened with the Selva startup prompt.`, 'success');
+      } else if (msg.launchMode === 'seeded') {
+        toast(`${label} opened with a Selva startup prompt.`, 'success');
+      } else {
+        toast(`${label} opened. Selva startup prompt copied to clipboard.`, 'success');
+      }
+      break;
+    }
+    case 'codingAgentConnectionError': {
+      toast('Connect failed: ' + (msg.error || 'Unknown error'), 'error');
+      break;
+    }
     case 'agentResult': {
-      setAgentBusy(false);
-      const question = state._lastQuestion || '\u2026';
-      console.log('[Selva] agentResult:', { answer: (msg.answer || '').slice(0, 200), opsCount: (msg.ops || []).length, summary: msg.summary });
-
-      if (msg.error) {
-        toast('Agent: ' + msg.error, 'error');
-        addChatEntry(question, 'Error: ' + msg.error, null, true);
-        // Don't add errors to history — they're not useful context
+      handleAgentResultMessage(msg);
+      break;
+    }
+    case 'janeSessionResult': {
+      if (msg.mode === 'bootstrap') handleBootstrapResultMessage(msg);
+      else handleAgentResultMessage(msg);
+      break;
+    }
+    case 'janeSessionSync': {
+      const trailState = msg.trailState || {};
+      const nextTrailId = trailState.activeTrail && trailState.activeTrail.id ? trailState.activeTrail.id : '';
+      const trailChanged = !!(nextTrailId && nextTrailId !== state.activeTrailId);
+      applyTrailStatePayload(trailState.trails || [], trailState.activeTrail || null);
+      if (trailChanged) {
+        hydrateTrailSession(msg.session || {}, { resetLoadedConfigs: true });
         break;
       }
-
-      // Accumulate into conversation history (natural text, not JSON)
-      state.conversationHistory.push({ role: 'user', content: question });
-      const agentResponse = msg.answer || msg.summary || '';
-      state.conversationHistory.push({ role: 'assistant', content: agentResponse });
-
-      let answer = msg.answer || '';
-      const cells = (settings.notebookMode && msg.executedCells && msg.executedCells.length > 0)
-        ? msg.executedCells : null;
-      // In notebook mode, strip IMG: from answer text (images render in cell output instead)
-      if (cells) {
-        answer = answer.replace(/\n*IMG:[A-Za-z0-9+/=\s]{20,}/g, '').trim();
-      }
-
-      if ((answer || cells) && (!msg.ops || msg.ops.length === 0)) {
-        addChatEntry(question, answer, null, false, cells);
-        break;
-      }
-      const ops = msg.ops || [];
-      if (ops.length === 0) {
-        addChatEntry(question, msg.summary || 'No changes needed.', [], false);
-        toast('Agent made no changes', 'info');
-        break;
-      }
-
-      const { results, diffs, affectedFiles } = executeOps(ops);
-      const failedOps = results.filter(r => typeof r === 'string' && r.startsWith('unknown op:'));
-      if (failedOps.length > 0) {
-        console.warn('[Selva] Failed ops:', failedOps, 'Registered tools:', Object.keys(agentOps));
-      }
-      const answerText = answer || '';
-      const summaryText = failedOps.length > 0
-        ? `${failedOps.length} op(s) failed: tools not registered. Try reloading the dashboard.`
-        : (msg.summary || `Executed ${ops.length} operation${ops.length > 1 ? 's' : ''}.`);
-
-      if (diffs.length > 0 || affectedFiles.size > 0) {
-        toast(`Agent: ${ops.length} op${ops.length > 1 ? 's' : ''} across ${affectedFiles.size} file${affectedFiles.size > 1 ? 's' : ''}`, 'success');
-      }
-
-      const displayText = answerText ? answerText + '\n' + summaryText : summaryText;
-      addChatEntry(question, displayText, diffs.length > 0 ? diffs : [], false, cells);
-
-      renderTabs();
-      renderEditors();
-      renderPinnedBar();
-      updateButtons();
-
-      const hasData = state.files.some(f => state.fileTypes[f] === 'data');
-      document.getElementById('data-panel').classList.toggle('hidden', !hasData);
+      applySessionSnapshot(msg.session || {});
+      queueExternalDrafts((msg.session || {}).pendingExternalDrafts || []);
+      rebuildChatLogFromSession();
+      renderDashboardFromSession();
+      applyPendingExternalDrafts();
+      break;
+    }
+    case 'trailState': {
+      applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
+      hydrateTrailSession(msg.session || {}, { resetLoadedConfigs: true });
+      const verb = msg.action === 'new'
+        ? 'Started'
+        : (msg.action === 'fork'
+          ? 'Forked to'
+          : (msg.action === 'rename' ? 'Renamed to' : 'Switched to'));
+      toast(`${verb} ${state.activeTrailName || 'Trail'}`, 'success');
       break;
     }
   }
@@ -453,21 +735,36 @@ function onEditorInput(e) {
 document.getElementById('file-tabs').addEventListener('click', e => {
   const tab = e.target.closest('[data-filename]');
   if (!tab) return;
-  // If panel is collapsed, expand it
   const panel = tab.closest('.dash-panel');
+  const filename = tab.dataset.filename;
+  const isActive = filename === state.activeConfigFile;
   if (panel && panel.classList.contains('collapsed')) {
     panel.classList.remove('collapsed');
+    selectFile(filename);
+    return;
   }
-  selectFile(tab.dataset.filename);
+  if (panel && isActive) {
+    panel.classList.add('collapsed');
+    return;
+  }
+  selectFile(filename);
 });
 document.getElementById('data-tabs').addEventListener('click', e => {
   const tab = e.target.closest('[data-filename]');
   if (!tab) return;
   const panel = tab.closest('.dash-panel');
+  const filename = tab.dataset.filename;
+  const isActive = filename === state.activeDataFile;
   if (panel && panel.classList.contains('collapsed')) {
     panel.classList.remove('collapsed');
+    selectFile(filename);
+    return;
   }
-  selectFile(tab.dataset.filename);
+  if (panel && isActive) {
+    panel.classList.add('collapsed');
+    return;
+  }
+  selectFile(filename);
 });
 
 // ── Event delegation: theme swatches ──────────────────────
@@ -477,8 +774,10 @@ document.getElementById('theme-swatches').addEventListener('click', e => {
 });
 
 // ── Static element listeners ───────────────────────────────
-document.getElementById('reset-btn').addEventListener('click', resetFile);
-document.getElementById('save-btn').addEventListener('click', saveFile);
+const resetBtnEl = document.getElementById('reset-btn');
+if (resetBtnEl) resetBtnEl.addEventListener('click', resetFile);
+const saveBtnEl = document.getElementById('save-btn');
+if (saveBtnEl) saveBtnEl.addEventListener('click', saveFile);
 
 // ── Panel collapse/expand ───────────────────────────────────
 document.querySelectorAll('.dash-panel-header[data-action="toggle-panel"]').forEach(header => {
@@ -488,10 +787,6 @@ document.querySelectorAll('.dash-panel-header[data-action="toggle-panel"]').forE
     if (e.target.closest('.tab')) return;
     const panel = header.closest('.dash-panel');
     panel.classList.toggle('collapsed');
-    // Deselect tabs when collapsing
-    if (panel.classList.contains('collapsed')) {
-      panel.querySelectorAll('.tab.active').forEach(t => t.classList.remove('active'));
-    }
   });
 });
 
@@ -659,39 +954,147 @@ document.getElementById('reset-defaults-btn').addEventListener('click', resetToF
 document.getElementById('search').addEventListener('input', applySearch);
 
 // ── Agent CLI bar listeners ─────────────────────────────────
-document.getElementById('agent-run-btn').addEventListener('click', runAgentPrompt);
-document.getElementById('agent-input').addEventListener('click', () => {
-  document.getElementById('agent-input').classList.remove('agent-thinking');
-});
-document.getElementById('agent-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAgentPrompt(); }
-});
-document.getElementById('agent-model-btn').addEventListener('click', showModelPicker);
+const agentRunBtn = document.getElementById('agent-run-btn');
+if (agentRunBtn) agentRunBtn.addEventListener('click', runAgentPrompt);
+const agentInputEl = document.getElementById('agent-input');
+if (agentInputEl) {
+  agentInputEl.addEventListener('click', () => {
+    agentInputEl.classList.remove('agent-thinking');
+  });
+  agentInputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAgentPrompt(); }
+  });
+}
+const agentModelBtn = document.getElementById('agent-model-btn');
+if (agentModelBtn) agentModelBtn.addEventListener('click', showModelPicker);
+const codingAgentSelectEl = document.getElementById('coding-agent-select');
+if (codingAgentSelectEl) {
+  codingAgentSelectEl.addEventListener('change', e => {
+    state.selectedCodingAgentId = e.target.value || '';
+    updateCodingAgentControls();
+  });
+}
+const connectAgentBtn = document.getElementById('connect-agent-btn');
+if (connectAgentBtn) connectAgentBtn.addEventListener('click', connectSelectedCodingAgent);
+const trailPanelBtn = document.getElementById('trail-panel-btn');
+if (trailPanelBtn) {
+  trailPanelBtn.addEventListener('click', () => {
+    const panel = document.getElementById('trail-panel');
+    const syspromptPanel = document.getElementById('agent-sysprompt-panel');
+    const syspromptBtn = document.getElementById('agent-sysprompt-btn');
+    if (!panel) return;
+    if (syspromptPanel) syspromptPanel.classList.add('hidden');
+    if (syspromptBtn) syspromptBtn.classList.remove('active');
+    const hidden = panel.classList.toggle('hidden');
+    trailPanelBtn.classList.toggle('active', !hidden);
+  });
+}
+const trailSelectEl = document.getElementById('trail-select');
+if (trailSelectEl) {
+  trailSelectEl.addEventListener('change', e => {
+    const trailId = e.target.value || '';
+    if (!trailId || trailId === state.activeTrailId) return;
+    vscode.postMessage({ type: 'janeTrailSwitch', trailId });
+  });
+}
+function getTrailPanelName(mode) {
+  const input = document.getElementById('trail-name-input');
+  const raw = input ? input.value.trim() : '';
+  if (mode === 'rename') return raw;
+  return raw && raw !== String(state.activeTrailName || '').trim() ? raw : '';
+}
+const trailRenameBtn = document.getElementById('trail-rename-btn');
+if (trailRenameBtn) {
+  trailRenameBtn.addEventListener('click', () => {
+    const name = getTrailPanelName('rename');
+    if (!name) {
+      toast('Enter a Trail name first', 'error');
+      return;
+    }
+    if (name === String(state.activeTrailName || '').trim()) {
+      toast('Trail name is already up to date', 'success');
+      return;
+    }
+    vscode.postMessage({
+      type: 'janeTrailRename',
+      trailId: state.activeTrailId || '',
+      name,
+    });
+  });
+}
+const trailNewBtn = document.getElementById('trail-new-btn');
+if (trailNewBtn) {
+  trailNewBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'janeTrailNew', name: getTrailPanelName('new') });
+  });
+}
+const trailForkBtn = document.getElementById('trail-fork-btn');
+if (trailForkBtn) {
+  trailForkBtn.addEventListener('click', () => {
+    vscode.postMessage({
+      type: 'janeTrailFork',
+      name: getTrailPanelName('fork'),
+      sourceTrailId: state.activeTrailId || '',
+    });
+  });
+}
 
 // ── System prompt panel toggle ──────────────────────────────
-document.getElementById('agent-sysprompt-btn').addEventListener('click', () => {
-  const panel = document.getElementById('agent-sysprompt-panel');
-  const btn = document.getElementById('agent-sysprompt-btn');
-  const hidden = panel.classList.toggle('hidden');
-  btn.classList.toggle('active', !hidden);
-});
-document.getElementById('sysprompt-reset').addEventListener('click', () => {
-  const editor = document.getElementById('sysprompt-editor');
-  if (editor) editor.value = '';
-  updateSyspromptSparks();
-  vscode.postMessage({ type: 'saveAdditionalInstructions', text: '' });
-});
+const agentSyspromptBtn = document.getElementById('agent-sysprompt-btn');
+if (agentSyspromptBtn) {
+  agentSyspromptBtn.addEventListener('click', () => {
+    const panel = document.getElementById('agent-sysprompt-panel');
+    const trailPanel = document.getElementById('trail-panel');
+    const trailBtn = document.getElementById('trail-panel-btn');
+    if (!panel) return;
+    if (trailPanel) trailPanel.classList.add('hidden');
+    if (trailBtn) trailBtn.classList.remove('active');
+    const hidden = panel.classList.toggle('hidden');
+    agentSyspromptBtn.classList.toggle('active', !hidden);
+  });
+}
+const syspromptResetBtn = document.getElementById('sysprompt-reset');
+if (syspromptResetBtn) {
+  syspromptResetBtn.addEventListener('click', () => {
+    const editor = document.getElementById('sysprompt-editor');
+    if (editor) editor.value = '';
+    updateSyspromptSparks();
+    vscode.postMessage({ type: 'janeSessionSetInstructions', text: '' });
+  });
+}
 
 function updateSyspromptSparks() {
   const editor = document.getElementById('sysprompt-editor');
-  const sparks = document.querySelector('.sysprompt-sparks');
-  if (sparks) sparks.classList.toggle('active', !!(editor && editor.value.trim()));
+  const active = !!(editor && editor.value.trim());
+  const button = document.getElementById('agent-sysprompt-btn');
+  if (button) button.classList.toggle('has-instructions', active);
 }
-document.getElementById('sysprompt-editor').addEventListener('input', () => {
-  updateSyspromptSparks();
-  // Persist system-wide
-  vscode.postMessage({ type: 'saveAdditionalInstructions', text: document.getElementById('sysprompt-editor').value });
-});
+const syspromptEditor = document.getElementById('sysprompt-editor');
+if (syspromptEditor) {
+  syspromptEditor.addEventListener('input', () => {
+    updateSyspromptSparks();
+    vscode.postMessage({ type: 'janeSessionSetInstructions', text: syspromptEditor.value });
+  });
+}
+
+const notebookAddBtn = document.getElementById('notebook-add-btn');
+const notebookAddMenu = document.getElementById('notebook-add-menu');
+if (notebookAddBtn && notebookAddMenu) {
+  notebookAddBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    notebookAddMenu.classList.toggle('hidden');
+  });
+  notebookAddMenu.addEventListener('click', (e) => {
+    const option = e.target.closest('[data-cell-type]');
+    if (!option) return;
+    addManualNotebookCell(option.dataset.cellType);
+    notebookAddMenu.classList.add('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    const wrap = e.target.closest('.notebook-add-wrap');
+    if (!wrap) notebookAddMenu.classList.add('hidden');
+  });
+}
 
 // ── Keyboard shortcuts ─────────────────────────────────────
 document.addEventListener('keydown', e => {
@@ -711,7 +1114,7 @@ function _triggerBootstrap() {
   setAgentBusy(true);
   const schemata = buildAllSchemata();
   vscode.postMessage({
-    type: 'bootstrap',
+    type: 'janeSessionBootstrap',
     schemata,
     modelId: state.agentModelId,
   });
@@ -721,6 +1124,7 @@ function _triggerBootstrap() {
 function init() {
   buildThemeSwatches();
   loadSettings();
+  updateNotebookComposerVisibility();
   loadPinned();
   document.getElementById('pinned-panel-title').innerHTML = PIN_ICON_SVG + ' pinned';
   document.getElementById('config-panel-title').innerHTML = YAML_ICON_SVG + ' configs';

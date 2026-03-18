@@ -171,6 +171,11 @@ const PROVIDER_LOGOS = {
   generic: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--text-2)" stroke-width="1.2"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="var(--text-2)"/></svg>`,
 };
 
+const CODING_AGENT_LOGOS = {
+  'claude-code': `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>`,
+  codex: PROVIDER_LOGOS.openai.replaceAll('var(--text-2)', 'currentColor'),
+};
+
 function getProviderFromModel(model) {
   if (!model) return 'generic';
   const id = (model.id || '').toLowerCase();
@@ -191,6 +196,50 @@ function updateAgentModelLabel() {
     const provider = getProviderFromModel(m);
     logoEl.innerHTML = PROVIDER_LOGOS[provider] || PROVIDER_LOGOS.generic;
   }
+}
+
+function updateCodingAgentControls(preferredAgentId) {
+  const row = document.getElementById('session-agent-bar');
+  const select = document.getElementById('coding-agent-select');
+  const button = document.getElementById('connect-agent-btn');
+  const logo = document.getElementById('coding-agent-provider-logo');
+  const agents = Array.isArray(state.availableCodingAgents) ? state.availableCodingAgents : [];
+
+  if (!row || !select || !button || !logo) return;
+
+  if (!agents.length) {
+    row.classList.add('hidden');
+    return;
+  }
+
+  row.classList.remove('hidden');
+  const requestedId = preferredAgentId || state.selectedCodingAgentId || (vscode.getState() || {}).selectedCodingAgentId || '';
+  const selectedAgent = agents.find((agent) => agent.id === requestedId) || agents[0];
+  state.selectedCodingAgentId = selectedAgent ? selectedAgent.id : '';
+
+  select.innerHTML = agents.map((agent) => {
+    const versionSuffix = agent.version ? ` (${agent.version})` : '';
+    return `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.label + versionSuffix)}</option>`;
+  }).join('');
+  select.value = state.selectedCodingAgentId;
+  button.disabled = !selectedAgent;
+  button.title = selectedAgent ? `Connect ${selectedAgent.label} via MCP` : 'Connect MCP';
+  button.setAttribute('aria-label', selectedAgent ? `Connect ${selectedAgent.label} via MCP` : 'Connect MCP');
+  if (logo) {
+    logo.innerHTML = selectedAgent ? (CODING_AGENT_LOGOS[selectedAgent.id] || '') : '';
+    logo.classList.toggle('hidden', !selectedAgent);
+  }
+
+  const prev = vscode.getState() || {};
+  vscode.setState({ ...prev, selectedCodingAgentId: state.selectedCodingAgentId });
+}
+
+function connectSelectedCodingAgent() {
+  if (!state.selectedCodingAgentId) {
+    toast('No coding agent available', 'error');
+    return;
+  }
+  vscode.postMessage({ type: 'connectCodingAgent', agentId: state.selectedCodingAgentId });
 }
 
 function showModelPicker() {
@@ -226,6 +275,7 @@ function showModelPicker() {
     if (!opt) return;
     state.agentModelId = opt.dataset.modelId;
     updateAgentModelLabel();
+    vscode.postMessage({ type: 'janeSessionSetModel', modelId: state.agentModelId });
     menu.remove();
   });
   setTimeout(() => {
@@ -257,6 +307,13 @@ function _cellToolbar(buttons) {
   return bar;
 }
 
+function createNotebookEntityId(prefix) {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return `${prefix}_${window.crypto.randomUUID().replace(/-/g, '')}`;
+  }
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function _makeCollapsible(cell, toggleEl) {
   toggleEl.addEventListener('click', () => {
     cell.classList.toggle('cell-collapsed');
@@ -265,31 +322,322 @@ function _makeCollapsible(cell, toggleEl) {
 }
 
 function _makeDeletable(cell, closeEl) {
-  closeEl.addEventListener('click', () => cell.remove());
+  closeEl.addEventListener('click', () => {
+    cell.remove();
+    flushNotebookSessionPersist();
+  });
 }
 
 function _renderOutput(outputEl, rawResult) {
+  outputEl.dataset.rawResult = rawResult || '';
   if (!rawResult) { outputEl.innerHTML = '<span class="nb-output-empty">(no output)</span>'; return; }
-  let result = rawResult;
   const imgs = [];
-  result = result.replace(/IMG:([A-Za-z0-9+/=\s]{20,})/g, (_, b64) => {
-    imgs.push(b64.replace(/\s/g, ''));
-    return '';
-  });
+  const textLines = [];
+  for (const line of String(rawResult).split(/\r?\n/)) {
+    const match = line.match(/^IMG:([A-Za-z0-9+/=]+)$/);
+    if (match) imgs.push(match[1]);
+    else textLines.push(line);
+  }
+  const result = textLines.join('\n');
   let html = '';
   if (result.trim()) html += `<pre class="nb-output-text">${escapeHtml(result.trim())}</pre>`;
   for (const b64 of imgs) html += `<img class="agent-plot" src="data:image/png;base64,${b64}" alt="plot" />`;
   outputEl.innerHTML = html || '<span class="nb-output-empty">(no output)</span>';
 }
 
+let _persistNotebookTimer = null;
+let _cellRequestSeq = 0;
+
+function nextCellRequestId(prefix = 'cell') {
+  _cellRequestSeq += 1;
+  return `${prefix}-${Date.now()}-${_cellRequestSeq}`;
+}
+
+function findNotebookCellById(cellId, fallbackCell) {
+  const id = String(cellId || '').trim();
+  if (!id) return fallbackCell || null;
+  const selector = `.nb-cell[data-cell-id="${typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id}"]`;
+  return document.querySelector(selector) || fallbackCell || null;
+}
+
+function isLegacyPendingNotebookPythonOutput(output) {
+  const text = String(output || '').trim();
+  if (!text) return false;
+  // Compatibility for notebook cells persisted before explicit runState existed.
+  return /^\[[^\]]*\bplot\b[^\]]*\]$/i.test(text);
+}
+
+function looksLikeCellExecutionErrorText(output) {
+  const text = String(output || '').trim();
+  if (!text) return false;
+  return /^Error \(exit\s+\d+\):/i.test(text)
+    || /^Execution error:/i.test(text)
+    || /Traceback \(most recent call last\):/i.test(text)
+    || /\b(?:SyntaxError|NameError|TypeError|ValueError|IndexError|KeyError|ModuleNotFoundError|ImportError|AttributeError|RuntimeError)\b/.test(text);
+}
+
+function normalizeNotebookPythonRunState(runState, output) {
+  const normalized = String(runState || '').trim().toLowerCase();
+  if (normalized === 'pending' || normalized === 'done' || normalized === 'error') {
+    return normalized;
+  }
+  if (normalized === 'running') {
+    return 'pending';
+  }
+  const text = String(output || '').trim();
+  if (!text) return 'pending';
+  if (isLegacyPendingNotebookPythonOutput(text)) return 'pending';
+  if (looksLikeCellExecutionErrorText(text)) return 'error';
+  return 'done';
+}
+
+function mergeAdjacentMarkdownCells(cells) {
+  const merged = [];
+  for (const cell of (cells || [])) {
+    if (!cell) continue;
+    if (cell.type === 'markdown' && merged.length > 0 && merged[merged.length - 1].type === 'markdown') {
+      const prev = merged[merged.length - 1];
+      prev.content = [prev.content, cell.content].filter(Boolean).join('\n\n').trim();
+      continue;
+    }
+    merged.push(cell);
+  }
+  return merged;
+}
+
+function normalizeNotebookCellsForRender(cells) {
+  return (cells || []).map((cell) => {
+    if (!cell || cell.type !== 'python') return cell;
+    if (!String(cell.code || '').trim()) return cell;
+    return {
+      ...cell,
+      runState: normalizeNotebookPythonRunState(cell.runState, cell.output),
+    };
+  });
+}
+
+function buildNotebookCellModels(answerText, executedCells, diffs) {
+  const cells = [];
+  let fullText = answerText || '';
+
+  if (fullText && !/```/.test(fullText) && /^(?:import |from \w+ import |plt\.|matplotlib)/m.test(fullText)) {
+    const lines = fullText.split('\n');
+    let codeStart = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^(?:import |from \w+ import |plt\.|matplotlib|fig|ax[.\s=]|#)/.test(lines[i].trim())) {
+        if (codeStart < 0) codeStart = i;
+      }
+    }
+    if (codeStart >= 0) {
+      const before = lines.slice(0, codeStart).join('\n').trim();
+      const code = lines.slice(codeStart).join('\n').trim();
+      fullText = (before ? before + '\n\n' : '') + '```python\n' + code + '\n```';
+    }
+  }
+
+  const standaloneImages = [];
+  fullText = fullText
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = line.match(/^IMG:([A-Za-z0-9+/=]+)$/);
+      if (!match) return true;
+      standaloneImages.push(match[1]);
+      return false;
+    })
+    .join('\n')
+    .trim();
+
+  if (fullText) {
+    const blocks = splitTextIntoParagraphs(parseRichBlocks(fullText));
+    for (const block of blocks) {
+      if (block.type === 'text') {
+        cells.push({ type: 'markdown', content: block.content });
+      } else if (block.type === 'code' && /^(python|execute_python|py)$/i.test(block.lang || '')) {
+        cells.push({ type: 'python', code: block.content, output: '', runState: 'pending' });
+      } else if (block.type === 'code') {
+        cells.push({ type: 'code', lang: block.lang || 'text', content: block.content });
+      } else if (block.type === 'ascii') {
+        cells.push({ type: 'ascii', content: block.content });
+      } else if (block.type === 'mermaid') {
+        cells.push({ type: 'mermaid', content: block.content });
+      } else if (block.type === 'svg') {
+        cells.push({ type: 'svg', content: block.content });
+      }
+    }
+  }
+
+  for (const ec of (executedCells || [])) {
+    cells.push({
+      type: 'python',
+      code: ec.code || '',
+      output: ec.output || '',
+      runState: normalizeNotebookPythonRunState(ec.runState, ec.output),
+    });
+  }
+
+  for (const b64 of standaloneImages) {
+    cells.push({ type: 'image', data: b64 });
+  }
+
+  if (diffs && diffs.length > 0) {
+    cells.push({ type: 'diff', diffs });
+  }
+
+  return normalizeNotebookCellsForRender(mergeAdjacentMarkdownCells(cells));
+}
+
+function serializeNotebookCell(cell) {
+  const cellId = cell.dataset.cellId || createNotebookEntityId('cell');
+  const type = cell.dataset.cellType || '';
+  if (type === 'markdown') {
+    const editor = cell.querySelector('.nb-md-editor');
+    return { id: cellId, type: 'markdown', content: editor ? editor.value : '' };
+  }
+  if (type === 'python') {
+    const codeArea = cell._cmEditor || cell.querySelector('.py-cell-input');
+    const output = cell.querySelector('.nb-output');
+    return {
+      id: cellId,
+      type: 'python',
+      code: codeArea ? (typeof codeArea.getValue === 'function' ? codeArea.getValue() : codeArea.value) : '',
+      output: output ? (output.dataset.rawResult || '') : '',
+      runState: normalizeNotebookPythonRunState(cell.dataset.runState, output ? (output.dataset.rawResult || '') : ''),
+    };
+  }
+  if (type === 'image') {
+    return { id: cellId, type: 'image', data: cell.dataset.imageData || '' };
+  }
+  if (type === 'diff') {
+    try {
+      return { id: cellId, type: 'diff', diffs: JSON.parse(cell.dataset.diffs || '[]') };
+    } catch {
+      return { id: cellId, type: 'diff', diffs: [] };
+    }
+  }
+  return {
+    id: cellId,
+    type,
+    lang: cell.dataset.lang || '',
+    content: cell.dataset.content || '',
+  };
+}
+
+function serializeNotebookEntry(entryEl) {
+  const cells = [...entryEl.querySelectorAll(':scope > .nb-cells > .nb-cell')]
+    .map(serializeNotebookCell)
+    .filter((cell) => cell && (
+      (cell.type === 'markdown' && cell.content)
+      || (cell.type === 'python' && cell.code)
+      || (cell.type === 'image' && cell.data)
+      || (cell.type === 'diff')
+      || cell.content
+    ));
+  return {
+    id: entryEl.dataset.entryId || createNotebookEntityId('entry'),
+    question: (entryEl.querySelector('.nb-prompt-text') || {}).textContent || '',
+    answer: '',
+    summary: '',
+    executedCells: [],
+    cells: mergeAdjacentMarkdownCells(cells),
+    isError: entryEl.classList.contains('nb-entry-error'),
+    timestamp: entryEl.dataset.timestamp || new Date().toISOString(),
+  };
+}
+
+function persistNotebookSessionEntries() {
+  const log = document.getElementById('agent-chat-log');
+  if (!log) return;
+  const entries = [...log.querySelectorAll(':scope > .nb-entry')].map(serializeNotebookEntry);
+  state.sessionEntries = entries;
+  vscode.postMessage({ type: 'persistSessionEntries', entries });
+}
+
+function flushNotebookSessionPersist() {
+  if (_persistNotebookTimer) {
+    clearTimeout(_persistNotebookTimer);
+    _persistNotebookTimer = null;
+  }
+  persistNotebookSessionEntries();
+}
+
+function scheduleNotebookSessionPersist() {
+  if (_persistNotebookTimer) clearTimeout(_persistNotebookTimer);
+  _persistNotebookTimer = setTimeout(() => {
+    _persistNotebookTimer = null;
+    persistNotebookSessionEntries();
+  }, 250);
+}
+
+function bindNotebookPersistenceLifecycle() {
+  if (window.__selvaNotebookPersistBound) return;
+  window.__selvaNotebookPersistBound = true;
+
+  const flushOnLifecycle = () => {
+    if (_persistNotebookTimer) flushNotebookSessionPersist();
+  };
+
+  window.addEventListener('pagehide', flushOnLifecycle);
+  window.addEventListener('beforeunload', flushOnLifecycle);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnLifecycle();
+  });
+}
+
+bindNotebookPersistenceLifecycle();
+
+function buildCodeMirrorEditor(host, initialCode, onRun) {
+  if (typeof window.CodeMirror !== 'function') return null;
+  const editor = window.CodeMirror(host, {
+    value: initialCode || '',
+    mode: 'python',
+    lineNumbers: false,
+    lineWrapping: false,
+    indentUnit: 4,
+    tabSize: 4,
+    viewportMargin: Infinity,
+    matchBrackets: true,
+    extraKeys: {
+      'Shift-Enter': () => onRun(),
+      'Cmd-/': 'toggleComment',
+      'Ctrl-/': 'toggleComment',
+      'Alt-/': 'toggleComment',
+      Tab(cm) {
+        if (cm.somethingSelected()) {
+          cm.indentSelection('add');
+          return;
+        }
+        cm.replaceSelection('    ', 'end');
+      },
+      'Shift-Tab'(cm) {
+        if (cm.somethingSelected()) {
+          cm.indentSelection('subtract');
+          return;
+        }
+        const cursor = cm.getCursor();
+        const line = cm.getLine(cursor.line);
+        const match = line.match(/^( {1,4}|\t)/);
+        if (!match) return;
+        cm.replaceRange('', { line: cursor.line, ch: 0 }, { line: cursor.line, ch: match[0].length });
+      },
+    },
+  });
+  editor.on('change', () => scheduleNotebookSessionPersist());
+  editor.on('blur', () => flushNotebookSessionPersist());
+  requestAnimationFrame(() => editor.refresh());
+  return editor;
+}
+
 // ── Build a notebook cell by type ────────────────────────
 
-function buildCell(block, initialOutput) {
+function buildCell(block) {
+  const kind = String(block.type || '').toLowerCase();
   const cell = document.createElement('div');
-  cell.className = 'nb-cell nb-' + block.type;
+  cell.className = 'nb-cell nb-' + kind;
+  cell.dataset.cellType = kind;
+  cell.dataset.cellId = block.id || createNotebookEntityId('cell');
 
-  // ── Markdown cell ──────────────────────────────────
-  if (block.type === 'text') {
+  if (kind === 'markdown') {
+    const startEditing = !!block.startEditing;
     const mdLogo = `<svg class="md-logo" width="16" height="10" viewBox="0 0 208 128" fill="#4169aa"><path d="M15 10h18l30 39 30-39h18v108h-21V44L63 83 36 44v74H15zm123 0h21v66l35-38 35 38V10h21v108h-21l-35-39-35 39H138z"/></svg>`;
     const toolbar = _cellToolbar(
       `${mdLogo}<span class="py-toolbar-spacer"></span>` +
@@ -302,18 +650,19 @@ function buildCell(block, initialOutput) {
     // Rendered output (shown by default)
     const rendered = document.createElement('div');
     rendered.className = 'nb-cell-body rich-text';
-    rendered.innerHTML = renderMarkdownLatex(block.content);
+    if (startEditing) rendered.classList.add('hidden');
+    rendered.innerHTML = renderMarkdownLatex(block.content || '');
     cell.appendChild(rendered);
 
     // Raw source editor (hidden by default)
     const editor = document.createElement('textarea');
-    editor.className = 'nb-md-editor hidden';
-    editor.value = block.content;
+    editor.className = 'nb-md-editor' + (startEditing ? '' : ' hidden');
+    editor.value = block.content || '';
     editor.spellcheck = false;
-    editor.rows = Math.max(3, block.content.split('\n').length + 1);
+    editor.rows = Math.max(3, editor.value.split('\n').length + 1);
     cell.appendChild(editor);
 
-    let editMode = false;
+    let editMode = startEditing;
     function toggleEditMode() {
       editMode = !editMode;
       rendered.classList.toggle('hidden', editMode);
@@ -327,6 +676,7 @@ function buildCell(block, initialOutput) {
       rendered.innerHTML = renderMarkdownLatex(editor.value);
       if (editMode) toggleEditMode();
       wireLinks(cell);
+      scheduleNotebookSessionPersist();
     }
 
     // Double-click rendered text to edit
@@ -345,27 +695,39 @@ function buildCell(block, initialOutput) {
     // Auto-resize editor
     editor.addEventListener('input', () => {
       editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+      scheduleNotebookSessionPersist();
     });
+    editor.addEventListener('blur', () => flushNotebookSessionPersist());
 
     _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
     _makeDeletable(cell, toolbar.querySelector('.nb-close'));
+    if (startEditing) {
+      requestAnimationFrame(() => {
+        editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+        editor.focus();
+      });
+    }
     return cell;
   }
 
   // ── Python cell ────────────────────────────────────
-  const isPython = block.type === 'code' && /^(python|execute_python|py)$/i.test(block.lang || '');
-  if (isPython) {
+  if (kind === 'python') {
+    const isExpanded = !!block.expanded;
     const toolbar = _cellToolbar(
       `${PY_LOGO_SVG}` +
       `<button class="nb-cell-prompt-btn" title="Ask agent to edit this code">&gt;_</button>` +
-      `<input type="text" class="nb-cell-prompt-input hidden" placeholder="edit instruction..." spellcheck="false">` +
+      `<input type="text" class="nb-cell-prompt-input hidden" placeholder="edit or debug instructions..." spellcheck="false">` +
       `<span class="py-toolbar-spacer"></span>` +
       `<button class="nb-run" title="Run (Shift+Enter)"><svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span></button>` +
       `<button class="nb-copy" title="Copy">${CELL_COPY_SVG}</button>` +
-      `<span class="nb-toggle">${ICON_EXPAND}</span>` +
+      `<span class="nb-toggle">${isExpanded ? ICON_COLLAPSE : ICON_EXPAND}</span>` +
       `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
     );
     cell.appendChild(toolbar);
+    const runBtn = toolbar.querySelector('.nb-run');
+    const copyBtn = toolbar.querySelector('.nb-copy');
+    const playSvg = '<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span>';
+    const stopSvg = '<svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg><span>Stop</span>';
 
     // Cell-level agent prompt
     const promptBtn = toolbar.querySelector('.nb-cell-prompt-btn');
@@ -392,59 +754,129 @@ function buildCell(block, initialOutput) {
         e.preventDefault();
         const instruction = promptInput.value.trim();
         if (!instruction) return;
+        const requestId = nextCellRequestId('edit');
+        const cellId = cell.dataset.cellId || '';
+        const handler = (event) => {
+          const msg = event.data;
+          if (msg.type !== 'editCellCodeResult') return;
+          if (msg.requestId !== requestId) return;
+          window.removeEventListener('message', handler);
+          promptInput.disabled = false;
+          promptInput.placeholder = 'edit or debug instructions...';
+          promptInput.value = '';
+          promptInput.classList.add('hidden');
+          promptBtn.classList.remove('hidden');
+          const targetCell = findNotebookCellById(cellId, cell) || cell;
+          const targetOutput = targetCell.querySelector('.nb-output') || output;
+          if (msg.error) {
+            targetCell.dataset.runState = 'error';
+            targetOutput.className = 'nb-output';
+            targetOutput.dataset.rawResult = msg.error;
+            targetOutput.innerHTML = `<pre class="nb-output-error">${escapeHtml(msg.error)}</pre>`;
+            toast('Cell edit failed', 'error');
+            return;
+          }
+          if (msg.code) {
+            if (targetCell._cmEditor) {
+              targetCell._cmEditor.setValue(msg.code);
+              targetCell._cmEditor.focus();
+            } else {
+              const fallbackInput = targetCell.querySelector('.py-cell-input');
+              if (fallbackInput) fallbackInput.value = msg.code;
+            }
+            const hasExecutionResult = Object.prototype.hasOwnProperty.call(msg, 'output');
+            if (hasExecutionResult) {
+              targetCell.dataset.runState = msg.output && looksLikeCellExecutionErrorText(msg.output)
+                ? 'error'
+                : 'done';
+              targetOutput.className = 'nb-output' + (msg.output ? '' : ' hidden');
+              if (msg.output) {
+                _renderOutput(targetOutput, msg.output);
+              } else {
+                targetOutput.dataset.rawResult = '';
+                targetOutput.innerHTML = '';
+              }
+            }
+            if (msg.validationError) {
+              toast(msg.validationError, 'error');
+            } else if (msg.validated) {
+              toast(`Code updated and validated in ${msg.attempts || 1} attempt${(msg.attempts || 1) > 1 ? 's' : ''}`, 'success');
+            } else {
+              toast('Code updated', 'success');
+            }
+            flushNotebookSessionPersist();
+            if (!hasExecutionResult) {
+              targetCell.dataset.runState = 'pending';
+              const targetRunBtn = targetCell.querySelector('.nb-run');
+              if (targetRunBtn && !targetRunBtn.disabled) {
+                requestAnimationFrame(() => targetRunBtn.click());
+              }
+            }
+          }
+        };
+        window.addEventListener('message', handler);
         promptInput.disabled = true;
         promptInput.placeholder = 'thinking...';
         // Send to agent: modify this specific code
         vscode.postMessage({
           type: 'editCellCode',
-          code: codeArea.value,
+          requestId,
+          cellId,
+          code: cell._cmEditor ? cell._cmEditor.getValue() : (cell.querySelector('.py-cell-input') || {}).value || '',
           instruction,
+          output: looksLikeCellExecutionErrorText((cell.querySelector('.nb-output') || {}).dataset?.rawResult || '')
+            ? ((cell.querySelector('.nb-output') || {}).dataset?.rawResult || '')
+            : '',
+          agentId: state.selectedCodingAgentId || '',
           modelId: state.agentModelId,
         });
-        const handler = (event) => {
-          const msg = event.data;
-          if (msg.type !== 'editCellCodeResult') return;
-          window.removeEventListener('message', handler);
-          promptInput.disabled = false;
-          promptInput.placeholder = 'edit instruction...';
-          promptInput.value = '';
-          promptInput.classList.add('hidden');
-          promptBtn.classList.remove('hidden');
-          if (msg.error) {
-            toast('Edit failed: ' + msg.error, 'error');
-            return;
-          }
-          if (msg.code) {
-            codeArea.value = msg.code;
-            codeHighlight.innerHTML = highlightPython(msg.code) + '\n';
-            codeArea.rows = msg.code.split('\n').length + 1;
-            toast('Code updated', 'success');
-          }
-        };
-        window.addEventListener('message', handler);
       }
     });
 
-    // Code area with syntax highlighting overlay
+    const runCurrentCode = () => runBtn.click();
+
+    // Code area
     const codeWrap = document.createElement('div');
-    codeWrap.className = 'py-cell collapsed';
-    const codeHighlight = document.createElement('pre');
-    codeHighlight.className = 'py-cell-display';
-    codeHighlight.innerHTML = highlightPython(block.content);
-    codeWrap.appendChild(codeHighlight);
-    const codeArea = document.createElement('textarea');
-    codeArea.className = 'py-cell-input';
-    codeArea.value = block.content;
-    codeArea.spellcheck = false;
-    codeWrap.appendChild(codeArea);
+    codeWrap.className = 'py-cell' + (isExpanded ? '' : ' collapsed');
+    const codeEditorHost = document.createElement('div');
+    codeEditorHost.className = 'py-cell-editor';
+    codeWrap.appendChild(codeEditorHost);
     cell.appendChild(codeWrap);
-    codeArea.addEventListener('input', () => {
-      codeHighlight.innerHTML = highlightPython(codeArea.value) + '\n';
-      codeArea.rows = codeArea.value.split('\n').length + 1;
-    });
+
+    const codeEditor = buildCodeMirrorEditor(codeEditorHost, block.code || '', runCurrentCode);
+    if (codeEditor) {
+      cell._cmEditor = codeEditor;
+      if (isExpanded) {
+        requestAnimationFrame(() => {
+          codeEditor.refresh();
+          codeEditor.focus();
+        });
+      }
+    } else {
+      const codeArea = document.createElement('textarea');
+      codeArea.className = 'py-cell-input';
+      codeArea.value = block.code || '';
+      codeArea.spellcheck = false;
+      codeWrap.appendChild(codeArea);
+      if (isExpanded) {
+        requestAnimationFrame(() => codeArea.focus());
+      }
+      codeArea.addEventListener('input', () => {
+        scheduleNotebookSessionPersist();
+      });
+      codeArea.addEventListener('blur', () => flushNotebookSessionPersist());
+      codeArea.addEventListener('keydown', (e) => {
+        if (e.shiftKey && e.key === 'Enter') {
+          e.preventDefault();
+          runCurrentCode();
+        }
+      });
+    }
 
     // Output area
     const output = document.createElement('div');
+    const initialOutput = block.output || '';
+    cell.dataset.runState = normalizeNotebookPythonRunState(block.runState, initialOutput);
     output.className = 'nb-output' + (initialOutput ? '' : ' hidden');
     cell.appendChild(output);
     if (initialOutput) _renderOutput(output, initialOutput);
@@ -454,56 +886,71 @@ function buildCell(block, initialOutput) {
     togEl.addEventListener('click', () => {
       codeWrap.classList.toggle('collapsed');
       togEl.innerHTML = codeWrap.classList.contains('collapsed') ? ICON_EXPAND : ICON_COLLAPSE;
+      if (!codeWrap.classList.contains('collapsed') && cell._cmEditor) {
+        requestAnimationFrame(() => cell._cmEditor.refresh());
+      }
     });
 
     // Copy
-    toolbar.querySelector('.nb-copy').addEventListener('click', () => {
-      navigator.clipboard.writeText(codeArea.value).then(() => toast('Copied'));
+    copyBtn.addEventListener('click', () => {
+      const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
+      navigator.clipboard.writeText(currentCode).then(() => toast('Copied'));
     });
 
     // Delete
     _makeDeletable(cell, toolbar.querySelector('.nb-close'));
 
-    // Shift+Enter to run
-    codeArea.addEventListener('keydown', (e) => {
-      if (e.shiftKey && e.key === 'Enter') {
-        e.preventDefault();
-        toolbar.querySelector('.nb-run').click();
-      }
-    });
-
     // Run button
-    const runBtn = toolbar.querySelector('.nb-run');
-    const playSvg = '<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span>';
-    const stopSvg = '<svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg><span>Stop</span>';
     runBtn.addEventListener('click', function() {
-      this.disabled = true;
-      this.innerHTML = stopSvg;
-      this.classList.add('py-running');
-      output.className = 'nb-output';
-      output.innerHTML = '<span class="nb-output-pending">Running...</span>';
-      vscode.postMessage({ type: 'executeCell', code: codeArea.value });
+      const requestId = nextCellRequestId('run');
+      const cellId = cell.dataset.cellId || '';
       const handler = (event) => {
         const msg = event.data;
         if (msg.type !== 'executeCellResult') return;
+        if (msg.requestId !== requestId) return;
         window.removeEventListener('message', handler);
+        const targetCell = findNotebookCellById(cellId, cell) || cell;
+        const targetOutput = targetCell.querySelector('.nb-output') || output;
         this.disabled = false;
         this.innerHTML = playSvg;
         this.classList.remove('py-running');
         if (msg.error) {
-          output.innerHTML = `<pre class="nb-output-error">${escapeHtml(msg.error)}</pre>`;
+          targetCell.dataset.runState = 'error';
+          _renderOutput(targetOutput, msg.error);
         } else {
-          _renderOutput(output, msg.result);
+          targetCell.dataset.runState = looksLikeCellExecutionErrorText(msg.result) ? 'error' : 'done';
+          _renderOutput(targetOutput, msg.result);
         }
+        flushNotebookSessionPersist();
       };
       window.addEventListener('message', handler);
+      this.disabled = true;
+      this.innerHTML = stopSvg;
+      this.classList.add('py-running');
+      cell.dataset.runState = 'running';
+      output.className = 'nb-output';
+      output.innerHTML = '<span class="nb-output-pending">Running...</span>';
+      const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
+      vscode.postMessage({ type: 'executeCell', requestId, cellId, code: currentCode });
     });
+
+    const shouldAutoRun = cell.dataset.runState === 'pending';
+    if (shouldAutoRun) {
+      requestAnimationFrame(() => {
+        const currentCode = cell._cmEditor
+          ? cell._cmEditor.getValue()
+          : ((cell.querySelector('.py-cell-input') || {}).value || '');
+        if (!String(currentCode || '').trim()) return;
+        runBtn.click();
+      });
+    }
 
     return cell;
   }
 
   // ── Mermaid cell ───────────────────────────────────
-  if (block.type === 'mermaid') {
+  if (kind === 'mermaid') {
+    cell.dataset.content = block.content || '';
     const toolbar = _cellToolbar(
       `<span class="nb-cell-type">mermaid</span><span class="py-toolbar-spacer"></span>` +
       `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
@@ -515,16 +962,17 @@ function buildCell(block, initialOutput) {
     cell.appendChild(body);
     const id = 'mermaid-' + (++_mermaidIdCounter);
     if (typeof mermaid !== 'undefined') {
-      mermaid.render(id, block.content).then(({ svg }) => { body.innerHTML = svg; })
-        .catch(() => { body.textContent = block.content; });
-    } else { body.textContent = block.content; }
+      mermaid.render(id, block.content || '').then(({ svg }) => { body.innerHTML = svg; })
+        .catch(() => { body.textContent = block.content || ''; });
+    } else { body.textContent = block.content || ''; }
     _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
     _makeDeletable(cell, toolbar.querySelector('.nb-close'));
     return cell;
   }
 
   // ── SVG cell ───────────────────────────────────────
-  if (block.type === 'svg') {
+  if (kind === 'svg') {
+    cell.dataset.content = block.content || '';
     const toolbar = _cellToolbar(
       `<span class="nb-cell-type">svg</span><span class="py-toolbar-spacer"></span>` +
       `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
@@ -533,7 +981,50 @@ function buildCell(block, initialOutput) {
     cell.appendChild(toolbar);
     const body = document.createElement('div');
     body.className = 'nb-cell-body';
-    body.innerHTML = block.content;
+    body.innerHTML = block.content || '';
+    cell.appendChild(body);
+    _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
+    _makeDeletable(cell, toolbar.querySelector('.nb-close'));
+    return cell;
+  }
+
+  if (kind === 'image') {
+    cell.dataset.imageData = block.data || '';
+    const toolbar = _cellToolbar(
+      `<span class="nb-cell-type">plot</span><span class="py-toolbar-spacer"></span>` +
+      `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
+      `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
+    );
+    cell.appendChild(toolbar);
+    const body = document.createElement('div');
+    body.className = 'nb-cell-body';
+    body.innerHTML = `<img class="agent-plot" src="data:image/png;base64,${block.data || ''}" alt="plot" />`;
+    cell.appendChild(body);
+    _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
+    _makeDeletable(cell, toolbar.querySelector('.nb-close'));
+    return cell;
+  }
+
+  if (kind === 'diff') {
+    const diffs = Array.isArray(block.diffs) ? block.diffs : [];
+    cell.dataset.diffs = JSON.stringify(diffs);
+    const toolbar = _cellToolbar(
+      `<span class="nb-cell-type">changes</span><span class="py-toolbar-spacer"></span>` +
+      `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
+      `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
+    );
+    cell.appendChild(toolbar);
+    const body = document.createElement('div');
+    body.className = 'nb-cell-body';
+    body.innerHTML = diffs.map(({ file, path, oldVal, newVal }) =>
+      `<div class="agent-diff-line">` +
+      `<span class="agent-diff-file">${escapeHtml(file)}</span>` +
+      `<span class="agent-diff-key">${escapeHtml(path.join('.'))}</span>` +
+      `<span class="agent-diff-old">${escapeHtml(String(oldVal))}</span>` +
+      `<span class="agent-diff-arrow">\u2192</span>` +
+      `<span class="agent-diff-new">${escapeHtml(String(newVal))}</span>` +
+      `</div>`
+    ).join('');
     cell.appendChild(body);
     _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
     _makeDeletable(cell, toolbar.querySelector('.nb-close'));
@@ -541,7 +1032,9 @@ function buildCell(block, initialOutput) {
   }
 
   // ── ASCII / code cell (non-Python) ─────────────────
-  const langLabel = block.type === 'code' ? (block.lang || 'code') : block.type;
+  cell.dataset.content = block.content || '';
+  if (block.lang) cell.dataset.lang = block.lang;
+  const langLabel = kind === 'code' ? (block.lang || 'code') : kind;
   const toolbar = _cellToolbar(
     `<span class="nb-cell-type">${escapeHtml(langLabel)}</span><span class="py-toolbar-spacer"></span>` +
     `<button class="nb-copy" title="Copy">${CELL_COPY_SVG}</button>` +
@@ -551,125 +1044,70 @@ function buildCell(block, initialOutput) {
   cell.appendChild(toolbar);
   const body = document.createElement('pre');
   body.className = 'nb-cell-body nb-pre';
-  body.textContent = block.content;
+  body.textContent = block.content || '';
   cell.appendChild(body);
   _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
   _makeDeletable(cell, toolbar.querySelector('.nb-close'));
   const copyBtn = toolbar.querySelector('.nb-copy');
   if (copyBtn) copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(block.content).then(() => toast('Copied'));
+    navigator.clipboard.writeText(block.content || '').then(() => toast('Copied'));
   });
-  return cell;
-}
-
-// ── Image cell (standalone base64 plot) ──────────────
-function buildImageCell(b64) {
-  const cell = document.createElement('div');
-  cell.className = 'nb-cell nb-image';
-  const toolbar = _cellToolbar(
-    `<span class="nb-cell-type">plot</span><span class="py-toolbar-spacer"></span>` +
-    `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
-    `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
-  );
-  cell.appendChild(toolbar);
-  const body = document.createElement('div');
-  body.className = 'nb-cell-body';
-  body.innerHTML = `<img class="agent-plot" src="data:image/png;base64,${b64}" alt="plot" />`;
-  cell.appendChild(body);
-  _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
-  _makeDeletable(cell, toolbar.querySelector('.nb-close'));
-  return cell;
-}
-
-// ── Diff cell ────────────────────────────────────────
-function buildDiffCell(diffs) {
-  if (!diffs || diffs.length === 0) return null;
-  const cell = document.createElement('div');
-  cell.className = 'nb-cell nb-diff';
-  const toolbar = _cellToolbar(
-    `<span class="nb-cell-type">changes</span><span class="py-toolbar-spacer"></span>` +
-    `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
-    `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
-  );
-  cell.appendChild(toolbar);
-  const body = document.createElement('div');
-  body.className = 'nb-cell-body';
-  body.innerHTML = diffs.map(({ file, path, oldVal, newVal }) =>
-    `<div class="agent-diff-line">` +
-    `<span class="agent-diff-file">${escapeHtml(file)}</span>` +
-    `<span class="agent-diff-key">${escapeHtml(path.join('.'))}</span>` +
-    `<span class="agent-diff-old">${escapeHtml(String(oldVal))}</span>` +
-    `<span class="agent-diff-arrow">\u2192</span>` +
-    `<span class="agent-diff-new">${escapeHtml(String(newVal))}</span>` +
-    `</div>`
-  ).join('');
-  cell.appendChild(body);
-  _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
-  _makeDeletable(cell, toolbar.querySelector('.nb-close'));
   return cell;
 }
 
 // ── Render answer as notebook cells ──────────────────
-function renderNotebookCells(container, answerText, executedCells, diffs) {
-  // Parse answer into blocks
-  let fullText = answerText || '';
-
-  // Detect unfenced Python and wrap
-  if (fullText && !/```/.test(fullText) && /^(?:import |from \w+ import |plt\.|matplotlib)/m.test(fullText)) {
-    const lines = fullText.split('\n');
-    let codeStart = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^(?:import |from \w+ import |plt\.|matplotlib|fig|ax[.\s=]|#)/.test(lines[i].trim())) {
-        if (codeStart < 0) codeStart = i;
-      }
-    }
-    if (codeStart >= 0) {
-      const before = lines.slice(0, codeStart).join('\n').trim();
-      const code = lines.slice(codeStart).join('\n').trim();
-      fullText = (before ? before + '\n\n' : '') + '```python\n' + code + '\n```';
-    }
+function renderNotebookCells(container, cells) {
+  for (const cell of (cells || [])) {
+    container.appendChild(buildCell(cell));
   }
-
-  // Extract standalone IMG: tags not inside code blocks
-  const standaloneImages = [];
-  fullText = fullText.replace(/\n*IMG:([A-Za-z0-9+/=\s]{20,})/g, (_, b64) => {
-    standaloneImages.push(b64.replace(/\s/g, ''));
-    return '';
-  });
-  fullText = fullText.trim();
-
-  // Parse into blocks and split paragraphs
-  if (fullText) {
-    const blocks = parseRichBlocks(fullText);
-    const split = splitTextIntoParagraphs(blocks);
-    for (const block of split) {
-      container.appendChild(buildCell(block));
-    }
-  }
-
-  // Executed cells from tool-use (notebook mode)
-  if (executedCells && executedCells.length > 0) {
-    for (const ec of executedCells) {
-      container.appendChild(buildCell(
-        { type: 'code', lang: 'python', content: ec.code },
-        ec.output
-      ));
-    }
-  }
-
-  // Standalone images
-  for (const b64 of standaloneImages) {
-    container.appendChild(buildImageCell(b64));
-  }
-
-  // Diffs
-  const diffCell = buildDiffCell(diffs);
-  if (diffCell) container.appendChild(diffCell);
-
   wireLinks(container);
 }
 
-function addChatEntry(question, answerText, diffs, isError, executedCells) {
+function ensureNotebookTailEntry() {
+  const log = document.getElementById('agent-chat-log');
+  if (!log) return null;
+
+  let entry = [...log.querySelectorAll(':scope > .nb-entry')].pop();
+  if (!entry) {
+    addChatEntry('manual note', '', null, false, null, {
+      instant: true,
+      skipPersist: true,
+      timestamp: new Date().toISOString(),
+      cells: [],
+    });
+    entry = [...log.querySelectorAll(':scope > .nb-entry')].pop();
+  }
+  if (!entry) return null;
+
+  log.classList.remove('hidden');
+  entry.classList.remove('nb-collapsed');
+  const toggle = entry.querySelector('.nb-entry-toggle');
+  if (toggle) toggle.innerHTML = ICON_COLLAPSE;
+  return entry.querySelector('.nb-cells');
+}
+
+function addManualNotebookCell(kind) {
+  const cellsDiv = ensureNotebookTailEntry();
+  if (!cellsDiv) return;
+
+  const model = kind === 'python'
+    ? { type: 'python', code: '', output: '', runState: 'pending', expanded: true }
+    : { type: 'markdown', content: '', startEditing: true };
+  const cell = buildCell(model);
+  cellsDiv.appendChild(cell);
+
+  const panels = document.getElementById('dashboard-panels');
+  if (panels) panels.scrollTop = panels.scrollHeight;
+  scheduleNotebookSessionPersist();
+}
+
+function updateNotebookComposerVisibility() {
+  const bar = document.getElementById('notebook-add-bar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', settings.notebookMode === false);
+}
+
+function addChatEntry(question, answerText, diffs, isError, executedCells, options = {}) {
   const log = document.getElementById('agent-chat-log');
   if (!log) return;
 
@@ -686,6 +1124,8 @@ function addChatEntry(question, answerText, diffs, isError, executedCells) {
   // ── Create notebook entry ──────────────────────────
   const entry = document.createElement('div');
   entry.className = 'nb-entry' + (isError ? ' nb-entry-error' : '');
+  entry.dataset.entryId = options.entryId || createNotebookEntityId('entry');
+  entry.dataset.timestamp = options.timestamp || new Date().toISOString();
 
   // Prompt cell (always visible)
   const promptCell = document.createElement('div');
@@ -696,6 +1136,7 @@ function addChatEntry(question, answerText, diffs, isError, executedCells) {
   promptCell.querySelector('.nb-entry-dismiss').addEventListener('click', () => {
     entry.remove();
     if (!log.querySelectorAll('.nb-entry').length) log.classList.add('hidden');
+    if (!options.skipPersist) flushNotebookSessionPersist();
   });
   promptCell.querySelector('.nb-entry-toggle').addEventListener('click', function() {
     entry.classList.toggle('nb-collapsed');
@@ -715,10 +1156,13 @@ function addChatEntry(question, answerText, diffs, isError, executedCells) {
 
   // ── Render cells ───────────────────────────────────
   const text = answerText || '';
+  const cellModels = Array.isArray(options.cells)
+    ? normalizeNotebookCellsForRender(mergeAdjacentMarkdownCells(options.cells))
+    : buildNotebookCellModels(text, executedCells, diffs);
 
   if (isError) {
-    // Error: single markdown cell, no animation
-    renderNotebookCells(cellsDiv, text, null, null);
+    renderNotebookCells(cellsDiv, cellModels);
+    if (!options.skipPersist) scheduleNotebookSessionPersist();
     return;
   }
 
@@ -727,9 +1171,9 @@ function addChatEntry(question, answerText, diffs, isError, executedCells) {
     (executedCells && executedCells.length > 0) ||
     /^(?:import |from \w+ import )/m.test(text);
 
-  if (hasRichContent || !text) {
-    // Rich content or empty: render cells directly
-    renderNotebookCells(cellsDiv, text, executedCells, diffs);
+  if (options.instant || hasRichContent || !text) {
+    renderNotebookCells(cellsDiv, cellModels);
+    if (!options.skipPersist) scheduleNotebookSessionPersist();
     return;
   }
 
@@ -752,7 +1196,8 @@ function addChatEntry(question, answerText, diffs, isError, executedCells) {
       clearInterval(_typingTimer);
       _typingTimer = null;
       tempDiv.remove();
-      renderNotebookCells(cellsDiv, text, executedCells, diffs);
+      renderNotebookCells(cellsDiv, cellModels);
+      if (!options.skipPersist) scheduleNotebookSessionPersist();
     }
   }, speed);
 }
@@ -777,16 +1222,12 @@ function _executeAgentPrompt(prompt) {
     toast('No configs loaded', 'error');
     return;
   }
-  const syspromptEditor = document.getElementById('sysprompt-editor');
-  const additionalPrompt = syspromptEditor && syspromptEditor.value.trim() ? syspromptEditor.value.trim() : null;
   vscode.postMessage({
-    type: 'agentPrompt',
+    type: 'janeSessionRun',
     prompt,
     schemata,
     dashboardState: buildDashboardState(),
     modelId: state.agentModelId,
-    additionalPrompt,
-    conversationHistory: state.conversationHistory,
   });
 }
 
