@@ -136,6 +136,14 @@ const state = {
   activeTrailId: '',
   activeTrailName: '',
   activeTrailPath: '',
+  kernelStatus: {
+    language: 'python',
+    trailId: '',
+    started: false,
+    state: 'cold',
+    pendingCount: 0,
+    currentRequestId: '',
+  },
   _pendingExternalDrafts: new Map(),
   _appliedExternalDraftIds: new Set(),
   // ── Generic hooks for agent-created tools ──

@@ -13,6 +13,7 @@ const {
   executeNotebookCell,
   disposeAllNotebookRuntimes,
 } = require('./lib/notebook-execution');
+const { getNotebookKernelManager } = require('./lib/kernel-manager');
 const {
   createWorkspaceRuntime,
   loadAllTools,
@@ -1176,27 +1177,91 @@ function activate(context) {
             (async () => {
               try {
                 const activeSession = janeRuntime.getSession();
-                const result = await executeNotebookCell({
+                const request = {
                   language: msg.language || 'python',
+                  configDir,
+                  trailId: msg.trailId || activeSession.trailId || '',
+                };
+                const result = await executeNotebookCell({
+                  language: request.language,
                   code: msg.code,
                   configDir,
                   extensionPath: __dirname,
                   execFileAsync,
                   panel,
-                  trailId: msg.trailId || activeSession.trailId || '',
+                  trailId: request.trailId,
                 });
                 panel.webview.postMessage({
                   type: 'executeCellResult',
                   requestId: msg.requestId || '',
                   cellId: msg.cellId || '',
                   result,
+                  status: getNotebookKernelManager().getStatus(request),
                 });
               } catch (e) {
+                const activeSession = janeRuntime.getSession();
+                const request = {
+                  language: msg.language || 'python',
+                  configDir,
+                  trailId: msg.trailId || activeSession.trailId || '',
+                };
                 panel.webview.postMessage({
                   type: 'executeCellResult',
                   requestId: msg.requestId || '',
                   cellId: msg.cellId || '',
                   error: e.message || String(e),
+                  status: getNotebookKernelManager().getStatus(request),
+                });
+              }
+            })();
+            break;
+          }
+          case 'getKernelStatus': {
+            const activeSession = janeRuntime.getSession();
+            const request = {
+              language: msg.language || 'python',
+              configDir,
+              trailId: msg.trailId || activeSession.trailId || '',
+            };
+            panel.webview.postMessage({
+              type: 'kernelStatusResult',
+              requestId: msg.requestId || '',
+              status: getNotebookKernelManager().getStatus(request),
+            });
+            break;
+          }
+          case 'kernelControl': {
+            (async () => {
+              const activeSession = janeRuntime.getSession();
+              const request = {
+                language: msg.language || 'python',
+                configDir,
+                trailId: msg.trailId || activeSession.trailId || '',
+              };
+              try {
+                let result;
+                const manager = getNotebookKernelManager();
+                if (msg.action === 'interrupt') {
+                  result = await manager.interrupt(request);
+                } else if (msg.action === 'restart') {
+                  result = await manager.restart(request);
+                } else {
+                  throw new Error(`Unsupported kernel action: ${msg.action || ''}`);
+                }
+                panel.webview.postMessage({
+                  type: 'kernelControlResult',
+                  requestId: msg.requestId || '',
+                  action: msg.action || '',
+                  ...result,
+                });
+              } catch (e) {
+                panel.webview.postMessage({
+                  type: 'kernelControlResult',
+                  requestId: msg.requestId || '',
+                  action: msg.action || '',
+                  ok: false,
+                  message: e.message || String(e),
+                  status: getNotebookKernelManager().getStatus(request),
                 });
               }
             })();

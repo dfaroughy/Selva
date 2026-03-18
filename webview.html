@@ -99,11 +99,31 @@
   <div id="dashboard-panels">
     <div id="agent-chat-log" class="hidden"></div>
     <div id="notebook-add-bar">
-      <div class="notebook-add-wrap">
-        <button class="btn notebook-add-btn" id="notebook-add-btn" title="Add notebook cell">+</button>
-        <div id="notebook-add-menu" class="hidden">
-          <button class="btn notebook-add-option" data-cell-type="markdown">Markdown</button>
-          <button class="btn notebook-add-option" data-cell-type="python">Python</button>
+      <div class="notebook-toolbar-wrap">
+        <div class="notebook-add-wrap">
+          <button class="btn notebook-add-btn" id="notebook-add-btn" title="Add notebook cell">+</button>
+          <div id="notebook-add-menu" class="hidden">
+            <button class="btn notebook-add-option" data-cell-type="markdown">Markdown</button>
+            <button class="btn notebook-add-option" data-cell-type="python">Python</button>
+          </div>
+        </div>
+        <div class="notebook-toolbar-meta">
+          <span class="notebook-trail-name" id="notebook-trail-name">Notebook Trail: --</span>
+          <div class="notebook-kernel-toolbar" id="notebook-kernel-toolbar" aria-label="Kernel controls">
+            <span class="notebook-kernel-pill kernel-cold" id="notebook-kernel-pill">
+              <span class="notebook-kernel-dot" id="notebook-kernel-dot" aria-hidden="true"></span>
+              <span class="notebook-kernel-status" id="notebook-kernel-status">kernel cold</span>
+            </span>
+            <button class="btn notebook-kernel-btn" id="notebook-kernel-refresh-btn" title="Refresh kernel status" aria-label="Refresh kernel status">
+              <span aria-hidden="true">⟳</span><span>status</span>
+            </button>
+            <button class="btn notebook-kernel-btn" id="notebook-kernel-interrupt-btn" title="Interrupt current execution" aria-label="Interrupt current execution">
+              <span aria-hidden="true">■</span><span>interrupt</span>
+            </button>
+            <button class="btn notebook-kernel-btn" id="notebook-kernel-restart-btn" title="Restart kernel" aria-label="Restart kernel">
+              <span aria-hidden="true">↻</span><span>restart</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

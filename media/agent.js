@@ -298,6 +298,8 @@ let _mermaidIdCounter = 0;
 
 const CELL_CLOSE_SVG = `<svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>`;
 const CELL_COPY_SVG = `<svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4"/></svg>`;
+const CELL_INSERT_UP_SVG = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.2v6.2"/><path d="M4.6 4.6L7 2.2l2.4 2.4"/><path d="M3 11h8"/><path d="M7 9.2v3.2"/><path d="M5.4 11h3.2"/></svg>`;
+const CELL_INSERT_DOWN_SVG = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11.8V5.6"/><path d="M4.6 9.4L7 11.8l2.4-2.4"/><path d="M3 3h8"/><path d="M7 1v3.2"/><path d="M5.4 3h3.2"/></svg>`;
 const PY_LOGO_SVG = `<svg class="py-logo" width="14" height="14" viewBox="0 0 14 14"><path d="M7 0C4.5 0 4.8 1 4.8 1l0 2h2.4v.7H3.5S1 3.4 1 7s2 3.4 2 3.4h1.2V8.2s-.1-2 2-2h2.6s1.9 0 1.9-1.8V1.9S11 0 7 0zM5.2 1.2a.7.7 0 1 1 0 1.4.7.7 0 0 1 0-1.4z" fill="#3572A5"/><path d="M7 14c2.5 0 2.2-1 2.2-1l0-2H6.8v-.7h3.7s2.5.3 2.5-3.3-2-3.4-2-3.4H9.8v2.2s.1 2-2 2H5.2s-1.9 0-1.9 1.8v2.5S3 14 7 14zM8.8 12.8a.7.7 0 1 1 0-1.4.7.7 0 0 1 0 1.4z" fill="#FDD835"/></svg>`;
 
 function _cellToolbar(buttons) {
@@ -726,6 +728,8 @@ function buildCell(block) {
       `<button class="nb-cell-prompt-btn" title="Ask agent to edit this code">&gt;_</button>` +
       `<input type="text" class="nb-cell-prompt-input hidden" placeholder="edit or debug instructions..." spellcheck="false">` +
       `<span class="py-toolbar-spacer"></span>` +
+      `<button class="nb-insert nb-insert-up" title="Insert python cell above">${CELL_INSERT_UP_SVG}</button>` +
+      `<button class="nb-insert nb-insert-down" title="Insert python cell below">${CELL_INSERT_DOWN_SVG}</button>` +
       `<button class="nb-run" title="Run (Shift+Enter)"><svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span></button>` +
       `<button class="nb-copy" title="Copy">${CELL_COPY_SVG}</button>` +
       `<span class="nb-toggle">${isExpanded ? ICON_COLLAPSE : ICON_EXPAND}</span>` +
@@ -734,6 +738,8 @@ function buildCell(block) {
     cell.appendChild(toolbar);
     const runBtn = toolbar.querySelector('.nb-run');
     const copyBtn = toolbar.querySelector('.nb-copy');
+    const insertUpBtn = toolbar.querySelector('.nb-insert-up');
+    const insertDownBtn = toolbar.querySelector('.nb-insert-down');
     const playSvg = '<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span>';
     const stopSvg = '<svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg><span>Stop</span>';
 
@@ -906,6 +912,12 @@ function buildCell(block) {
       const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
       navigator.clipboard.writeText(currentCode).then(() => toast('Copied'));
     });
+    insertUpBtn.addEventListener('click', () => {
+      insertNotebookCellRelative(cell, 'python', 'before');
+    });
+    insertDownBtn.addEventListener('click', () => {
+      insertNotebookCellRelative(cell, 'python', 'after');
+    });
 
     // Delete
     _makeDeletable(cell, toolbar.querySelector('.nb-close'));
@@ -931,6 +943,8 @@ function buildCell(block) {
           targetCell.dataset.runState = looksLikeCellExecutionErrorText(msg.result) ? 'error' : 'done';
           _renderOutput(targetOutput, msg.result);
         }
+        if (msg.status) setNotebookKernelStatus(msg.status);
+        else requestNotebookKernelStatus();
         flushNotebookSessionPersist();
       };
       window.addEventListener('message', handler);
@@ -938,6 +952,12 @@ function buildCell(block) {
       this.innerHTML = stopSvg;
       this.classList.add('py-running');
       cell.dataset.runState = 'running';
+      setNotebookKernelStatus({
+        language: getNotebookCellLanguage(cell),
+        trailId: state.activeTrailId || '',
+        started: true,
+        state: 'busy',
+      });
       output.className = 'nb-output';
       output.innerHTML = '<span class="nb-output-pending">Running...</span>';
       const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
@@ -1103,18 +1123,48 @@ function ensureNotebookTailEntry() {
   return entry.querySelector('.nb-cells');
 }
 
+function createManualNotebookCellModel(kind) {
+  return kind === 'python'
+    ? { type: 'python', lang: 'python', code: '', output: '', runState: 'pending', expanded: true }
+    : { type: 'markdown', content: '', startEditing: true };
+}
+
+function focusNotebookCell(cell) {
+  if (!cell) return;
+  requestAnimationFrame(() => {
+    if (cell._cmEditor) {
+      cell._cmEditor.refresh();
+      cell._cmEditor.focus();
+      return;
+    }
+    const input = cell.querySelector('.py-cell-input, textarea');
+    if (input) input.focus();
+  });
+}
+
+function insertNotebookCellRelative(targetCell, kind, position = 'after') {
+  if (!targetCell || !targetCell.parentNode) return null;
+  const cell = buildCell(createManualNotebookCellModel(kind));
+  if (position === 'before') {
+    targetCell.parentNode.insertBefore(cell, targetCell);
+  } else {
+    targetCell.parentNode.insertBefore(cell, targetCell.nextSibling);
+  }
+  focusNotebookCell(cell);
+  scheduleNotebookSessionPersist();
+  return cell;
+}
+
 function addManualNotebookCell(kind) {
   const cellsDiv = ensureNotebookTailEntry();
   if (!cellsDiv) return;
 
-  const model = kind === 'python'
-    ? { type: 'python', lang: 'python', code: '', output: '', runState: 'pending', expanded: true }
-    : { type: 'markdown', content: '', startEditing: true };
-  const cell = buildCell(model);
+  const cell = buildCell(createManualNotebookCellModel(kind));
   cellsDiv.appendChild(cell);
 
   const panels = document.getElementById('dashboard-panels');
   if (panels) panels.scrollTop = panels.scrollHeight;
+  focusNotebookCell(cell);
   scheduleNotebookSessionPersist();
 }
 
@@ -1122,6 +1172,74 @@ function updateNotebookComposerVisibility() {
   const bar = document.getElementById('notebook-add-bar');
   if (!bar) return;
   bar.classList.toggle('hidden', settings.notebookMode === false);
+  updateNotebookKernelToolbar();
+}
+
+function normalizeNotebookKernelState(value) {
+  const stateValue = String(value || '').trim().toLowerCase();
+  if (['cold', 'starting', 'idle', 'busy', 'dead', 'error'].includes(stateValue)) {
+    return stateValue;
+  }
+  return 'cold';
+}
+
+function getNotebookKernelLabel(kernelState) {
+  switch (kernelState) {
+    case 'starting':
+      return 'kernel starting';
+    case 'idle':
+      return 'kernel idle';
+    case 'busy':
+      return 'kernel busy';
+    case 'dead':
+      return 'kernel offline';
+    case 'error':
+      return 'kernel error';
+    default:
+      return 'kernel cold';
+  }
+}
+
+function setNotebookKernelStatus(nextStatus = {}) {
+  const merged = {
+    ...(state.kernelStatus || {}),
+    ...(nextStatus || {}),
+  };
+  merged.state = normalizeNotebookKernelState(merged.state);
+  state.kernelStatus = merged;
+  updateNotebookKernelToolbar();
+}
+
+function updateNotebookKernelToolbar() {
+  const bar = document.getElementById('notebook-kernel-toolbar');
+  const pill = document.getElementById('notebook-kernel-pill');
+  const label = document.getElementById('notebook-kernel-status');
+  const trailName = document.getElementById('notebook-trail-name');
+  const interruptBtn = document.getElementById('notebook-kernel-interrupt-btn');
+  const restartBtn = document.getElementById('notebook-kernel-restart-btn');
+  const refreshBtn = document.getElementById('notebook-kernel-refresh-btn');
+  if (!bar || !pill || !label || !trailName || !interruptBtn || !restartBtn || !refreshBtn) return;
+
+  const notebookHidden = settings.notebookMode === false;
+  bar.classList.toggle('hidden', notebookHidden);
+  if (notebookHidden) return;
+
+  const kernelState = normalizeNotebookKernelState((state.kernelStatus || {}).state);
+  pill.className = `notebook-kernel-pill kernel-${kernelState}`;
+  label.textContent = getNotebookKernelLabel(kernelState);
+  trailName.textContent = `Notebook Trail: ${state.activeTrailName || '--'}`;
+
+  interruptBtn.disabled = kernelState !== 'busy';
+  restartBtn.disabled = kernelState === 'starting';
+  refreshBtn.disabled = false;
+}
+
+function requestNotebookKernelStatus() {
+  vscode.postMessage({
+    type: 'getKernelStatus',
+    trailId: state.activeTrailId || '',
+    language: 'python',
+  });
 }
 
 function addChatEntry(question, answerText, diffs, isError, executedCells, options = {}) {

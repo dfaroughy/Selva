@@ -78,8 +78,11 @@ def _execute_cell(source):
                 if value is not None:
                     print(repr(value))
             _capture_open_figures(stdout_buffer)
-    except Exception:
-        traceback.print_exc(file=stderr_buffer)
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt):
+            stderr_buffer.write("KeyboardInterrupt\n")
+        else:
+            traceback.print_exc(file=stderr_buffer)
         if _SELVA_PLT is not None:
             try:
                 _SELVA_PLT.close("all")
@@ -121,8 +124,11 @@ for raw_line in sys.stdin:
         code_b64 = str(message.get("code_b64", ""))
         source = base64.b64decode(code_b64).decode("utf-8")
         response.update(_execute_cell(source))
-    except Exception:
-        response["stderr"] = traceback.format_exc()
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt):
+            response["stderr"] = "KeyboardInterrupt\n"
+        else:
+            response["stderr"] = traceback.format_exc()
 
     sys.stdout.write(json.dumps(response) + "\n")
     sys.stdout.flush()

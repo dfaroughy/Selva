@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 .claude/
 js-yaml.min.js
+__pycache__/
+*.pyc
