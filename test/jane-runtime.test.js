@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { disposeNotebookRuntimesForConfigDir } = require('../lib/notebook-execution');
 const { createWorkspaceRuntime } = require('../lib/selva-runtime');
 const { createJaneRuntime } = require('../lib/jane-runtime');
 const { clearJaneSession, setPanelState } = require('../lib/session-store');
@@ -22,6 +23,7 @@ function mkTmpDir() {
 }
 
 function cleanup(configDir) {
+  try { disposeNotebookRuntimesForConfigDir(configDir); } catch {}
   try { clearJaneSession(configDir); } catch {}
   fs.rmSync(configDir, { recursive: true, force: true });
 }
@@ -91,7 +93,7 @@ test('builds a compact init payload for fresh external agents', async () => {
     assert.ok(init.availableTools.dashboardOps.includes('setValue'));
     assert.ok(init.availableTools.workspace.includes('set_value'));
     assert.ok(init.dashboardState.lockedFieldCount <= 2);
-    assert.ok(init.recommendedFirstCalls.includes('jane_get_instruction_pack'));
+    assert.ok(!init.recommendedFirstCalls.includes('jane_get_instruction_pack'));
   } finally {
     cleanup(configDir);
   }
@@ -139,11 +141,14 @@ test('builds a shared Jane instruction pack for external agents', async () => {
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_session_set_instructions', { text: 'Keep answers compact.' });
     const pack = await janeRuntime.handleSessionToolCall('jane_get_instruction_pack');
-    assert.ok(pack.prompts.assembledSystemPrompt.includes('Keep answers compact.'));
+    assert.strictEqual(pack.prompts.additionalInstructions, 'Keep answers compact.');
     assert.ok(pack.prompts.bootstrapPrompt.includes('Classify each file'));
     assert.ok(pack.toolCatalog.dashboardOps.some((tool) => tool.name === 'setValue'));
     assert.ok(pack.toolCatalog.workspace.some((tool) => tool.name === 'execute_python'));
     assert.ok(pack.preferredFlow.includes('jane_add_cells'));
+    assert.ok(!('context' in pack));
+    assert.ok(!('assembledSystemPrompt' in pack.prompts));
+    assert.ok(JSON.stringify(pack).length < 20000);
   } finally {
     cleanup(configDir);
   }
@@ -241,6 +246,54 @@ test('records an external notebook entry into the Jane session', async () => {
     assert.strictEqual(session.entries[0].question, 'plot figure 10');
     assert.strictEqual(session.entries[0].executedCells.length, 1);
     assert.strictEqual(session.entries[0].cells.length, 2);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('jane_session_record_entry accepts executedCells passed as a JSON string', async () => {
+  const configDir = mkTmpDir();
+  try {
+    const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
+    const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
+    const result = await janeRuntime.handleSessionToolCall('jane_session_record_entry', {
+      question: 'stringified executed cells',
+      answer: 'Plot explanation.',
+      executedCells: JSON.stringify([
+        {
+          code: '2+3',
+          output: '[plot displayed]',
+        },
+      ]),
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.entry.cells.length, 2);
+    assert.strictEqual(result.entry.cells[0].type, 'markdown');
+    assert.strictEqual(result.entry.cells[1].type, 'python');
+    assert.strictEqual(String(result.entry.cells[1].output || '').trim(), '5');
+    assert.strictEqual(result.entry.cells[1].runState, 'done');
+    assert.strictEqual(result.entry.executedCells.length, 1);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('jane_add_cells accepts cells passed as a JSON string', async () => {
+  const configDir = mkTmpDir();
+  try {
+    const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
+    const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
+    const result = await janeRuntime.handleSessionToolCall('jane_add_cells', {
+      question: 'two cells',
+      cells: JSON.stringify([
+        { type: 'python', code: 'x = 55', output: '' },
+        { type: 'python', code: 'x + 5', output: '' },
+      ]),
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.entry.cells.length, 2);
+    assert.strictEqual(result.entry.cells[0].type, 'python');
+    assert.strictEqual(result.entry.cells[1].type, 'python');
   } finally {
     cleanup(configDir);
   }

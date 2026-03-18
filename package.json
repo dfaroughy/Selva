@@ -38,7 +38,7 @@
     "url": "https://github.com/dfaroughy/selva/issues"
   },
   "scripts": {
-    "test": "node test/json-extract.test.js && node test/notebook-python.test.js && node test/selva-runtime.test.js && node test/agent-core.test.js && node test/session-store.test.js && node test/jane-runtime.test.js && node test/coding-agents.test.js",
+    "test": "node test/json-extract.test.js && node test/notebook-python.test.js && node test/notebook-execution.test.js && node test/execute-python-tool.test.js && node test/selva-runtime.test.js && node test/agent-core.test.js && node test/session-store.test.js && node test/jane-runtime.test.js && node test/coding-agents.test.js",
     "mcp": "node mcp-server.js"
   },
   "main": "./extension.js",

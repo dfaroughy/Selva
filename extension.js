@@ -9,7 +9,10 @@ const {
   callAnthropicAPI,
   callOpenAIAPI,
 } = require('./lib/agent-core');
-const { executeNotebookCell } = require('./lib/notebook-execution');
+const {
+  executeNotebookCell,
+  disposeAllNotebookRuntimes,
+} = require('./lib/notebook-execution');
 const {
   createWorkspaceRuntime,
   loadAllTools,
@@ -1265,6 +1268,8 @@ function activate(context) {
   context.subscriptions.push(cmd);
 }
 
-function deactivate() {}
+function deactivate() {
+  disposeAllNotebookRuntimes();
+}
 
 module.exports = { activate, deactivate };

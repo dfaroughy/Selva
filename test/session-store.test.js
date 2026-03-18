@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -43,7 +44,18 @@ function mkTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'selva-session-'));
 }
 
+function legacySessionPathForConfigDir(configDir) {
+  const workspaceId = crypto
+    .createHash('sha1')
+    .update(String(configDir))
+    .digest('hex');
+  return path.join(os.homedir(), '.selva', 'sessions', `${workspaceId}.json`);
+}
+
 function cleanup(configDir) {
+  try {
+    fs.rmSync(legacySessionPathForConfigDir(configDir), { force: true });
+  } catch {}
   try { clearJaneSession(configDir); } catch {}
   fs.rmSync(configDir, { recursive: true, force: true });
 }
@@ -82,10 +94,14 @@ test('session store persists workspace trails as .svnb files and can switch betw
     assert.ok(initialTrail.path.endsWith('.svnb'));
     assert.ok(initialTrail.name);
     assert.ok(!/^Trail \d+$/.test(initialTrail.name));
+    assert.match(initialTrail.id, /^[A-Za-z0-9_]+_[a-f0-9]{32}$/);
+    assert.ok(initialTrail.file === `${initialTrail.id}.svnb`);
     assert.strictEqual(listJaneTrails(configDir).length, 1);
 
     const created = createJaneTrail(configDir, { name: 'Clean Slate' });
     assert.strictEqual(created.trail.name, 'Clean Slate');
+    assert.match(created.trail.id, /^Clean_Slate_[a-f0-9]{32}$/);
+    assert.strictEqual(created.trail.file, `${created.trail.id}.svnb`);
     assert.strictEqual(created.session.entries.length, 0);
     assert.strictEqual(created.session.bootstrap.done, false);
     assert.strictEqual(created.session.agentModelId, 'direct:gpt-4o');
@@ -97,6 +113,72 @@ test('session store persists workspace trails as .svnb files and can switch betw
     assert.strictEqual(switched.trail.id, initialTrail.id);
     assert.strictEqual(loadJaneSession(configDir).entries.length, 1);
     assert.strictEqual(loadJaneSession(configDir).entries[0].question, 'first');
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('default Trail ids are derived from the jungle bigram name', () => {
+  const configDir = mkTmpDir();
+  try {
+    const trail = getActiveTrail(configDir);
+    assert.ok(trail);
+    assert.match(trail.name, /^[A-Za-z]+ [A-Za-z]+(?: \d+)?$/);
+    const expectedPrefix = trail.name.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_]/g, '_').replace(/_+/g, '_');
+    assert.ok(trail.id.startsWith(`${expectedPrefix}_`));
+    assert.strictEqual(trail.file, `${trail.id}.svnb`);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('session store imports a legacy session only for a workspace with no Trail history yet', () => {
+  const configDir = mkTmpDir();
+  const legacyPath = legacySessionPathForConfigDir(configDir);
+  try {
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        version: 1,
+        configDir,
+        entries: [{ question: 'legacy question', answer: 'legacy answer' }],
+        updatedAt: new Date().toISOString(),
+      }, null, 2),
+      'utf8'
+    );
+
+    const session = loadJaneSession(configDir);
+    assert.strictEqual(session.entries.length, 1);
+    assert.strictEqual(session.entries[0].question, 'legacy question');
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('session store does not re-import a legacy session after the workspace has already initialized Trails', () => {
+  const configDir = mkTmpDir();
+  const legacyPath = legacySessionPathForConfigDir(configDir);
+  try {
+    updateJaneSession(configDir, (session) => session);
+
+    const trailsDir = path.join(configDir, '.selva', 'trails');
+    fs.rmSync(trailsDir, { recursive: true, force: true });
+
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        version: 1,
+        configDir,
+        entries: [{ question: 'should not resurrect', answer: 'old content' }],
+        updatedAt: new Date().toISOString(),
+      }, null, 2),
+      'utf8'
+    );
+
+    const session = loadJaneSession(configDir);
+    assert.strictEqual(session.entries.length, 0);
   } finally {
     cleanup(configDir);
   }
