@@ -1,10 +1,41 @@
+const { getNotebookKernelManager } = require('../../../lib/kernel-manager');
+
+async function executeWithKernel({ code, configDir, trailId }) {
+  const kernelResult = await getNotebookKernelManager().execute({
+    language: 'python',
+    configDir,
+    trailId,
+    code,
+  });
+
+  if (!kernelResult.ok) {
+    if (kernelResult.stdout || kernelResult.stderr) {
+      return (`Error (exit 1):\n${kernelResult.stderr || ''}\n${kernelResult.stdout || ''}`).trim();
+    }
+    throw new Error('Python kernel execution failed');
+  }
+
+  let result = kernelResult.stdout || '';
+  if (kernelResult.stderr) {
+    result += (result ? '\n' : '') + 'STDERR: ' + kernelResult.stderr;
+  }
+  return result || '(no output)';
+}
+
 // Extension context — this module is require'd by extension.js
 // Returns an async handler function
 module.exports = async function(input, context) {
-  const { execFileAsync, configDir } = context;
+  const { execFileAsync, configDir, trailId } = context;
   const code = input.code;
   const inputData = input.input_data ? JSON.stringify(input.input_data) : '';
   try {
+    if (trailId && !inputData) {
+      return await executeWithKernel({
+        code,
+        configDir,
+        trailId: String(trailId || ''),
+      });
+    }
     const { stdout, stderr } = await execFileAsync('python3', ['-c', code], {
       input: inputData,
       timeout: 60000,

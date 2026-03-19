@@ -19,9 +19,11 @@ const {
 } = require(path.join(__dirname, 'lib', 'selva-runtime'));
 const { createJaneRuntime } = require(path.join(__dirname, 'lib', 'jane-runtime'));
 const {
+  clone,
   enqueueExternalDraft,
   hasOpenPanelSession,
 } = require(path.join(__dirname, 'lib', 'session-store'));
+const { coerceValue } = require(path.join(__dirname, 'lib', 'value-coerce'));
 
 const configDir = process.argv[2] || process.cwd();
 const runtime = createWorkspaceRuntime({ configDir, extensionPath: __dirname });
@@ -30,6 +32,12 @@ const janeRuntime = createJaneRuntime({
   extensionPath: __dirname,
   workspaceRuntime: runtime,
 });
+
+// Buffer of successful execute_python results. When the agent calls
+// jane_session_record_entry or jane_add_cells, these are attached automatically
+// so the notebook gets the real code/output instead of the agent's reconstruction.
+// Failed executions are excluded — only the final working code matters.
+const pendingExecutedCells = [];
 
 const NULL_TOKEN = {
   isCancellationRequested: false,
@@ -43,10 +51,6 @@ function getApiKeys() {
     anthropic: process.env.ANTHROPIC_API_KEY || '',
     openai: process.env.OPENAI_API_KEY || '',
   };
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
 }
 
 function getPendingDraftValueOps() {
@@ -74,28 +78,25 @@ function readEffectiveYaml(file) {
   };
 }
 
-function formatSchemaReadout(file, raw, parsed, rawLimit = 4000) {
+function formatSchemaReadout(file, raw, parsed) {
   const schema = buildSchema(file, parsed);
   const lines = schema.fields
-    .map((field) => `  ${JSON.stringify(field.path)}  =  ${JSON.stringify(field.value)}  (${field.type})`)
+    .map((field) => `  ${JSON.stringify(field.path)}  =  ${String(field.preview || field.type)}  (${field.type})`)
     .join('\n');
   let result = `[${file}]\nFIELDS (${schema.fields.length} total):\n${lines}`;
-  const rawPreview = raw.slice(0, rawLimit);
-  result += '\n\nRAW YAML:\n' + rawPreview;
-  if (raw.length > rawLimit) result += '\n... (truncated, ' + raw.length + ' chars total)';
+  result += '\n\nNOTE: Use execute_python to load and inspect actual values from disk.';
   const stagedCount = getPendingDraftValueOps().filter((op) => op.input.file === file).length;
   if (stagedCount > 0) {
-    result += `\n\nSTAGED DRAFTS APPLIED IN VIEW (${stagedCount} pending setValue op${stagedCount > 1 ? 's' : ''})`;
+    result += `\nSTAGED DRAFTS APPLIED IN VIEW (${stagedCount} pending setValue op${stagedCount > 1 ? 's' : ''})`;
   }
   return result;
 }
 
 function buildDraftAwareSchemata() {
   return runtime.discoverYamlFiles().map((file) => {
-    const { raw, parsed } = readEffectiveYaml(file);
+    const { parsed } = readEffectiveYaml(file);
     return {
       file,
-      raw,
       fields: buildSchema(file, parsed).fields,
     };
   });
@@ -109,13 +110,7 @@ function stageSetValueDraft(args) {
     return 'Path not found: ' + JSON.stringify(pathArr) + ' in ' + args.file;
   }
 
-  let coerced = args.value;
-  if (typeof existing === 'number' && typeof args.value !== 'number') {
-    const num = Number(args.value);
-    coerced = Number.isNaN(num) ? args.value : num;
-  } else if (typeof existing === 'boolean' && typeof args.value !== 'boolean') {
-    coerced = String(args.value).toLowerCase() === 'true';
-  }
+  const coerced = coerceValue(existing, args.value);
 
   enqueueExternalDraft(configDir, {
     source: 'mcp:set_value',
@@ -139,6 +134,23 @@ async function callTool(toolName, toolArgs) {
   const panelOpen = hasOpenPanelSession(janeRuntime.getSession());
 
   if (janeRuntime.isSessionTool(toolName)) {
+    // When the agent records a notebook entry, attach any buffered executed cells
+    // so the notebook gets real code/output instead of the agent's reconstruction.
+    if ((toolName === 'jane_session_record_entry' || toolName === 'jane_add_cells')
+        && pendingExecutedCells.length > 0) {
+      const buffered = pendingExecutedCells.splice(0);
+      const existing = toolName === 'jane_add_cells'
+        ? (Array.isArray(toolArgs.cells) ? toolArgs.cells : [])
+        : [];
+      // Use the buffered cells as the authoritative source; keep any non-python
+      // cells (like markdown) the agent explicitly provided.
+      const agentNonCode = existing.filter((c) => c && c.type !== 'python' && c.type !== 'image');
+      toolArgs.cells = [...agentNonCode, ...buffered];
+      if (toolName === 'jane_session_record_entry' && !toolArgs.executedCells) {
+        // Clear executedCells so the agent's abbreviated versions are not used.
+        toolArgs.executedCells = [];
+      }
+    }
     return janeRuntime.handleSessionToolCall(toolName, toolArgs, {
       apiKeys: getApiKeys(),
       panel: null,
@@ -146,26 +158,47 @@ async function callTool(toolName, toolArgs) {
       token: NULL_TOKEN,
       execFileAsync: undefined,
       persistConfigChanges: !panelOpen,
-      schemata: panelOpen ? buildDraftAwareSchemata() : undefined,
       stageDraftValueOps: panelOpen,
     });
   }
 
   if (toolName === 'read_config' && panelOpen) {
     const { raw, parsed } = readEffectiveYaml(toolArgs.file);
-    return formatSchemaReadout(toolArgs.file, raw, parsed, 4000);
+    return formatSchemaReadout(toolArgs.file, raw, parsed);
   }
 
   if (toolName === 'get_file_schema' && panelOpen) {
     const { raw, parsed } = readEffectiveYaml(toolArgs.file);
-    return formatSchemaReadout(toolArgs.file, raw, parsed, 3000);
+    return formatSchemaReadout(toolArgs.file, raw, parsed);
   }
 
   if (toolName === 'set_value' && panelOpen) {
     return stageSetValueDraft(toolArgs);
   }
 
-  return runtime.callTool(toolName, toolArgs);
+  const result = await runtime.callTool(toolName, toolArgs);
+
+  // Buffer successful execute_python results. Failed executions are excluded
+  // so the notebook only gets the final working code, not debug iterations.
+  if (toolName === 'execute_python' && toolArgs.code && typeof result === 'string') {
+    const isError = /^Error \(exit\s+\d+\)|^Execution error:|Traceback \(most recent call last\)/i.test(result.trim());
+    if (!isError) {
+      const cells = [];
+      let textOutput = result;
+      const imgMatches = [...result.matchAll(/(?:^|\n)IMG:([A-Za-z0-9+/=]+)(?=\n|$)/g)];
+      if (imgMatches.length > 0) {
+        textOutput = result.replace(/(?:^|\n)IMG:([A-Za-z0-9+/=]+)(?=\n|$)/g, '').trim();
+        textOutput = textOutput || '(plot generated)';
+      }
+      cells.push({ type: 'python', code: toolArgs.code, output: textOutput, runState: 'done' });
+      for (const m of imgMatches) {
+        cells.push({ type: 'image', data: m[1] });
+      }
+      pendingExecutedCells.push(...cells);
+    }
+  }
+
+  return result;
 }
 
 function compactEntry(entry) {
@@ -217,17 +250,30 @@ function compactJaneToolResult(toolName, result) {
   return result;
 }
 
+const TOOL_RESULT_MAX_CHARS = 3000;
+
+function compactToolResult(text) {
+  if (text.length <= TOOL_RESULT_MAX_CHARS) return text;
+  const headBudget = Math.floor(TOOL_RESULT_MAX_CHARS * 0.7);
+  const tailBudget = TOOL_RESULT_MAX_CHARS - headBudget;
+  const head = text.slice(0, headBudget);
+  const tail = text.slice(-tailBudget);
+  const dropped = text.length - headBudget - tailBudget;
+  return head + `\n\n... (${dropped} chars omitted) ...\n\n` + tail;
+}
+
 function toTextToolResult(toolName, result) {
   const compactResult = compactJaneToolResult(toolName, result);
 
   if (typeof result === 'string') {
     return {
-      content: [{ type: 'text', text: result }],
+      content: [{ type: 'text', text: compactToolResult(result) }],
     };
   }
 
+  const text = JSON.stringify(compactResult);
   return {
-    content: [{ type: 'text', text: JSON.stringify(compactResult) }],
+    content: [{ type: 'text', text: compactToolResult(text) }],
   };
 }
 

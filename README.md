@@ -1,101 +1,60 @@
-# SELVA
+# Selva
 
-An agentic YAML workbench for VS Code — visual config editing, AI agent with Python execution, and a self-extending tool ecosystem.
+Selva is a MCP-backed workspace for scientific projects through a notebook-style agent interface. It combines a visual YAML dashboard, a persisted notebook with stateful Python kernel, Trail-based session management, and an MCP server for external coding agents.
 
-Built for ML practitioners and scientists who work with experiment configs and data files.
+## Selva snapshot
 
-![Selva](https://raw.githubusercontent.com/dfaroughy/selva/main/Screenshot.png)
+![Selva screenshot](Screenshot.png)
 
----
+## Core Concepts
 
-## What It Does
+### Jane (Jupyter-like Agentic Notebook Engine)
 
-**Visual Dashboard** — Opens any folder of YAML files as an interactive form with sliders, toggles, type badges, pinning, locking, search, and 7 themes.
+Jane is Selva's persisted runtime. It tracks notebook entries, conversation history, dashboard state, and model configuration. Jane can be driven from inside the Selva panel or through MCP tools by external agents (Claude Code, Codex).
 
-**AI Agent** — An embedded agent (Jane) that understands your configs and can edit values, classify files, plot data, run Python analysis, and answer questions — all through natural language.
+### Trails
 
-**Self-Extending** — When the agent encounters a task no existing tool can handle, it creates a new tool on the fly, saves it to `~/.selva/ecosystem/tools/`, and uses it immediately. The tool persists across sessions and projects.
+A Trail is a persisted notebook lineage for a workspace, stored as a `.svnb` file under `.selva/trails/`. Each Trail isolates notebook cells, session state, dashboard configuration, and Python kernel state. Trails are named with jungle-style bigrams (e.g. `Okapia Callidryas`).
 
-**Python Execution** — Jupyter-like code cells with syntax highlighting, `Shift+Enter` to run, and inline matplotlib plots.
+### Stateful Python Kernel
 
----
+Python execution is stateful within the active Trail — variables persist across cells, like Jupyter. Trails isolate Python state from one another. The notebook UI exposes kernel status, interrupt, and restart controls.
 
-## Quick Start
+Large datasets should be loaded from disk in code, not pushed into model context.
 
-| Method | How |
-|---|---|
-| Command Palette | `Ctrl+Shift+P` → **Selva** |
-| Keyboard shortcut | `Cmd+Shift+J` (Mac) / `Ctrl+Shift+J` |
-| Explorer | Right-click any folder → **Selva** |
+## Tooling
 
-### Model Setup
+Selva exposes workspace tools (deterministic operations on YAML files and Python execution) and Jane session tools (notebook/Trail management) via MCP. Tools include `execute_python`, `get_file_schema`, `setValue`, `lockField`, `pinField`, `propose_tool`, and the full `jane_*` session API.
 
-Selva works with any VS Code language model extension (GitHub Copilot, etc.). For best results, add your own API key:
-
-1. Open Settings (gear icon)
-2. Add your **Anthropic** or **OpenAI** API key
-3. Select a `direct:` model from the dropdown
-
-Direct API gives you native tool calling — no JSON fallback needed.
-
----
-
-## Features
-
-### Agent Capabilities
-- Natural language config editing ("reduce learning rate by half")
-- File classification (config vs data) with auto-locking
-- Data plotting via matplotlib (inline, editable, re-runnable)
-- Field pinning, locking, unlocking via conversation
-- Conversation memory within each session
-- Self-extending: creates new dashboard tools at runtime
-
-### Visual Editor
-- Multi-file tabs with modification indicators
-- Collapsible sections with preserved expansion state
-- Numeric sliders (linear, log, log2, custom bounds)
-- Type-aware controls (text, toggles, lists, objects)
-- Search/filter across all keys and values
-- Export as JSON
-- 7 themes: Midnight, Slate, Nord, Forest, Light, Desert, Sunset
-
-### Ecosystem
-- Universal tool format (built-in = agent-created)
-- Tools stored in `~/.selva/ecosystem/tools/`
-- Hooks API for extending dashboard behavior
-- Jungle-themed bigram IDs for audit trail
-- `tools.lock` for tracking provenance
-
----
+The `propose_tool` system lets agents create new reusable tools at runtime, persisted to `~/.selva/ecosystem/tools/`.
 
 ## Architecture
 
-```
-You ↔ Jane (session agent)
-        ↓ creates tools
-  ~/.selva/ecosystem/tools/
-        ↓ audited by
-    Tarzan (codebase agent — future)
-        ↓ promotes to
-  ecosystem/tools/ (built-in)
-```
-
-See [DOCS.md](DOCS.md) for full documentation and [AGENT_PLAN.md](AGENT_PLAN.md) for the technical roadmap.
-
----
+- `extension.js` — VS Code activation, panel lifecycle, message bridge
+- `mcp-server.js` — stdio MCP server for external agents
+- `lib/jane-runtime.js` — Jane session runtime, Trail-aware tools
+- `lib/session-store.js` — Trail persistence and file locking
+- `lib/kernel-manager.js` — stateful Python kernel manager
+- `lib/selva-runtime.js` — workspace runtime and tool loading
+- `handlers/` — message handler modules (trail, agent, file, kernel, settings)
+- `ecosystem/tools/` — built-in tool implementations
+- `media/` — notebook/dashboard UI
 
 ## Requirements
 
-- VS Code **1.95.0+**
-- YAML files (`.yaml` or `.yml`)
-- Python 3 + matplotlib (for plotting features)
-- A language model: [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) or your own API key (Anthropic / OpenAI)
+- VS Code `^1.95.0`
+- Python 3 available as `python3`
+- Optional: `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` for direct API access
 
-## Testing
+## Development
 
 ```bash
-npm test   # 34 tests covering JSON extraction, Python detection, tool loading, bigrams
+npm install
+npm test
+npm run mcp -- /path/to/workspace
 ```
+
+Open in VS Code, launch via `Selva` command or `Cmd+Shift+J`.
 
 ## License
 

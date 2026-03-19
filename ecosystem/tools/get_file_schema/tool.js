@@ -6,14 +6,8 @@ module.exports = async function(input, context) {
   if (!match) return 'File not found: ' + file + '. Available files: ' + schemata.map(s => s.file).join(', ');
 
   const lines = match.fields.map(f =>
-    `  ${JSON.stringify(f.path)}  =  ${JSON.stringify(f.value)}  (${f.type})`
+    `  ${JSON.stringify(f.path)}  =  ${String(f.preview != null ? f.preview : (f.type || 'unknown'))}  (${f.type})`
   ).join('\n');
 
-  let result = `[${file}]\nFIELDS (${match.fields.length} total):\n${lines}`;
-  if (match.raw) {
-    const rawPreview = match.raw.slice(0, 3000);
-    result += '\n\nRAW YAML:\n' + rawPreview;
-    if (match.raw.length > 3000) result += '\n... (truncated, ' + match.raw.length + ' chars total)';
-  }
-  return result;
+  return `[${file}]\nFIELDS (${match.fields.length} total):\n${lines}\n\nNOTE:\nStructure only. Load the file in Python to inspect actual values.`;
 };

@@ -5,7 +5,27 @@ const os = require('os');
 const crypto = require('crypto');
 const { jungleBigram } = require('./bigrams.js');
 
+const BLOCKED_CODE_PATTERNS = [
+  /\brequire\s*\(\s*['"]child_process['"]\s*\)/,
+  /\brequire\s*\(\s*['"]fs['"]\s*\)/,
+  /\brequire\s*\(\s*['"]net['"]\s*\)/,
+  /\brequire\s*\(\s*['"]http['"]\s*\)/,
+  /\brequire\s*\(\s*['"]https['"]\s*\)/,
+  /\bprocess\.exit\b/,
+  /\bprocess\.env\b/,
+  /\beval\s*\(/,
+  /\bnew\s+Function\s*\(/,
+  /\bglobal\./,
+  /\bglobalThis\./,
+];
+
 module.exports = async function(input, context) {
+  const code = String(input.code || '');
+  const blocked = BLOCKED_CODE_PATTERNS.filter((p) => p.test(code));
+  if (blocked.length > 0) {
+    return 'Tool code rejected: contains blocked patterns (' + blocked.map((p) => p.source).join(', ') + ')';
+  }
+
   const toolsBaseDir = path.join(os.homedir(), '.selva', 'ecosystem', 'tools');
   const jungleDir = path.join(toolsBaseDir, input.name);
 

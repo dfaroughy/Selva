@@ -9,6 +9,7 @@ const {
   loadAllTools,
   resolveWorkspacePath,
 } = require('../lib/selva-runtime');
+const { disposeNotebookRuntimesForConfigDir } = require('../lib/kernel-manager');
 
 const extensionPath = path.resolve(__dirname, '..');
 
@@ -17,6 +18,7 @@ function mkTmpDir() {
 }
 
 function cleanup(dir) {
+  try { disposeNotebookRuntimesForConfigDir(dir); } catch {}
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -70,7 +72,8 @@ test('workspace runtime can list, read, and update YAML via MCP-style tools', as
 
     const readResult = await runtime.callTool('read_config', { file: 'trainer.yaml' });
     assert.match(readResult, /learning_rate/);
-    assert.match(readResult, /0\.001/);
+    assert.match(readResult, /number/);
+    assert.match(readResult, /Structure only/);
 
     const setResult = await runtime.callTool('set_value', {
       file: 'trainer.yaml',
@@ -81,6 +84,21 @@ test('workspace runtime can list, read, and update YAML via MCP-style tools', as
 
     const updated = fs.readFileSync(yamlPath, 'utf8');
     assert.match(updated, /learning_rate: 0\.01/);
+  } finally {
+    cleanup(tmpDir);
+  }
+});
+
+test('workspace runtime execute_python uses the active Trail kernel by default', async () => {
+  const tmpDir = mkTmpDir();
+  try {
+    const runtime = createWorkspaceRuntime({ configDir: tmpDir, extensionPath });
+
+    const first = await runtime.callTool('execute_python', { code: 'x = 55' });
+    assert.strictEqual(first, '(no output)');
+
+    const second = await runtime.callTool('execute_python', { code: 'x + 5' });
+    assert.strictEqual(second, '60\n');
   } finally {
     cleanup(tmpDir);
   }

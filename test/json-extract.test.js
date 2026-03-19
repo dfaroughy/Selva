@@ -514,14 +514,21 @@ const getFileSchemaHandler = require('../ecosystem/tools/get_file_schema/tool.js
 
 test('get_file_schema: returns schema for existing file', async () => {
   const schemata = [
-    { file: 'train.yaml', fields: [{ path: ['lr'], value: 0.01, type: 'float' }, { path: ['epochs'], value: 100, type: 'int' }], raw: 'lr: 0.01\nepochs: 100' },
-    { file: 'data.yaml', fields: [{ path: ['x'], value: 1, type: 'int' }], raw: 'x: 1' },
+    {
+      file: 'train.yaml',
+      fields: [
+        { path: ['lr'], preview: 'number', type: 'number' },
+        { path: ['epochs'], preview: 'number', type: 'number' },
+      ],
+    },
+    { file: 'data.yaml', fields: [{ path: ['x'], preview: 'number', type: 'number' }] },
   ];
   const result = await getFileSchemaHandler({ file: 'train.yaml' }, { schemata });
   assert.ok(result.includes('[train.yaml]'));
   assert.ok(result.includes('FIELDS (2 total)'));
-  assert.ok(result.includes('0.01'));
-  assert.ok(result.includes('RAW YAML'));
+  assert.ok(result.includes('number'));
+  assert.ok(!result.includes('RAW YAML'));
+  assert.ok(result.includes('Structure only'));
 });
 
 test('get_file_schema: returns error for missing file', async () => {
@@ -531,11 +538,14 @@ test('get_file_schema: returns error for missing file', async () => {
   assert.ok(result.includes('a.yaml'));
 });
 
-test('get_file_schema: truncates long raw YAML', async () => {
-  const longRaw = 'x: 1\n'.repeat(1000); // ~5000 chars
-  const schemata = [{ file: 'big.yaml', fields: [{ path: ['x'], value: 1, type: 'int' }], raw: longRaw }];
+test('get_file_schema: shows compact structural previews for large arrays', async () => {
+  const schemata = [{
+    file: 'big.yaml',
+    fields: [{ path: ['values'], preview: 'array(len=1000, item=number)', type: 'array' }],
+  }];
   const result = await getFileSchemaHandler({ file: 'big.yaml' }, { schemata });
-  assert.ok(result.includes('truncated'));
+  assert.ok(result.includes('array(len=1000, item=number)'));
+  assert.ok(!result.includes('RAW YAML'));
 });
 
 test('get_file_schema: handles empty schemata', async () => {

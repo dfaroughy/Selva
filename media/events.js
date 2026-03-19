@@ -646,6 +646,7 @@ window.addEventListener('message', event => {
       applyTrailStatePayload(trailState.trails || [], trailState.activeTrail || null);
       if (trailChanged) {
         hydrateTrailSession(msg.session || {}, { resetLoadedConfigs: true });
+        requestNotebookKernelStatus();
         break;
       }
       applySessionSnapshot(msg.session || {});
@@ -653,6 +654,7 @@ window.addEventListener('message', event => {
       rebuildChatLogFromSession();
       renderDashboardFromSession();
       applyPendingExternalDrafts();
+      requestNotebookKernelStatus();
       break;
     }
     case 'trailState': {
@@ -664,6 +666,26 @@ window.addEventListener('message', event => {
           ? 'Forked to'
           : (msg.action === 'rename' ? 'Renamed to' : 'Switched to'));
       toast(`${verb} ${state.activeTrailName || 'Trail'}`, 'success');
+      requestNotebookKernelStatus();
+      break;
+    }
+    case 'kernelStatusResult': {
+      setNotebookKernelStatus(msg.status || {});
+      break;
+    }
+    case 'kernelControlResult': {
+      setNotebookKernelStatus(msg.status || {});
+      if (!msg.ok) {
+        toast(msg.message || 'Kernel action failed', 'error');
+        break;
+      }
+      if (msg.action === 'interrupt') {
+        toast(msg.interrupted ? 'Kernel interrupt sent' : (msg.message || 'Kernel is idle'), msg.interrupted ? 'success' : 'info');
+      } else if (msg.action === 'restart') {
+        toast('Kernel restarted', 'success');
+      } else {
+        toast(msg.message || 'Kernel updated', 'success');
+      }
       break;
     }
   }
@@ -785,6 +807,7 @@ document.querySelectorAll('.dash-panel-header[data-action="toggle-panel"]').forE
     if (e.target.closest('.pin-clear-btn')) return;
     if (e.target.closest('nav')) return;
     if (e.target.closest('.tab')) return;
+    if (e.target.closest('.notebook-header-toolbar')) return;
     const panel = header.closest('.dash-panel');
     panel.classList.toggle('collapsed');
   });
@@ -1096,6 +1119,35 @@ if (notebookAddBtn && notebookAddMenu) {
   });
 }
 
+const kernelRefreshBtn = document.getElementById('notebook-kernel-refresh-btn');
+if (kernelRefreshBtn) {
+  kernelRefreshBtn.addEventListener('click', () => {
+    requestNotebookKernelStatus();
+  });
+}
+const kernelInterruptBtn = document.getElementById('notebook-kernel-interrupt-btn');
+if (kernelInterruptBtn) {
+  kernelInterruptBtn.addEventListener('click', () => {
+    vscode.postMessage({
+      type: 'kernelControl',
+      action: 'interrupt',
+      trailId: state.activeTrailId || '',
+      language: 'python',
+    });
+  });
+}
+const kernelRestartBtn = document.getElementById('notebook-kernel-restart-btn');
+if (kernelRestartBtn) {
+  kernelRestartBtn.addEventListener('click', () => {
+    vscode.postMessage({
+      type: 'kernelControl',
+      action: 'restart',
+      trailId: state.activeTrailId || '',
+      language: 'python',
+    });
+  });
+}
+
 // ── Keyboard shortcuts ─────────────────────────────────────
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -1108,14 +1160,16 @@ document.addEventListener('keydown', e => {
   }
 });
 
+updateNotebookKernelToolbar();
+requestNotebookKernelStatus();
+
 // ── Bootstrap trigger ────────────────────────────────────────
 function _triggerBootstrap() {
   if (state._bootstrapDone) return;
   setAgentBusy(true);
-  const schemata = buildAllSchemata();
   vscode.postMessage({
     type: 'janeSessionBootstrap',
-    schemata,
+    pendingEdits: buildPendingEdits(),
     modelId: state.agentModelId,
   });
 }
