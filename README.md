@@ -2,7 +2,7 @@
 
 Selva is a MCP-backed workspace for scientific projects through a notebook-style agent interface. It combines a visual YAML dashboard, a persisted notebook with stateful Python kernel, Trail-based session management, and an MCP server for external coding agents.
 
-### Selva snapshot
+### Snapshot
 
 ![Selva screenshot](Screenshot.png)
 
