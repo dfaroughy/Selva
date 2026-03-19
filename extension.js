@@ -5,23 +5,23 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const yaml = require('./vendor/js-yaml.min.js');
+const { handleTrailOp } = require('./handlers/trail-ops');
+const { handleAgentOp } = require('./handlers/agent-ops');
+const { handleFileOp } = require('./handlers/file-ops');
+const { handleKernelOp } = require('./handlers/kernel-ops');
+const { handleSettingsOp } = require('./handlers/settings-ops');
 const {
   callAnthropicAPI,
   callOpenAIAPI,
 } = require('./lib/agent-core');
 const {
-  executeNotebookCell,
   disposeAllNotebookRuntimes,
 } = require('./lib/notebook-execution');
-const { getNotebookKernelManager } = require('./lib/kernel-manager');
 const {
   createWorkspaceRuntime,
-  loadAllTools,
-  loadExtensionTool,
 } = require('./lib/selva-runtime');
 const { createJaneRuntime } = require('./lib/jane-runtime');
 const {
-  acknowledgeExternalDrafts,
   getTrailsDir,
   setPanelState,
 } = require('./lib/session-store');
@@ -858,471 +858,46 @@ function activate(context) {
       }, null, context.subscriptions);
 
       // ── Message handler ────────────────────────────────────
+      const handlerCtx = {
+        vscode,
+        configDir,
+        panel,
+        folderName,
+        janeRuntime,
+        context,
+        apiKeys,
+        yaml,
+        activeTokenSources,
+        execFileAsync,
+        extensionPath: __dirname,
+        findYamlFiles,
+        sendModelList,
+        updatePanelTitle,
+        listCodingAgents,
+        connectCodingAgent,
+        suppressLocalSessionSync,
+        pickDefaultCodingAgentId,
+        runExternalCellEditWithRetries,
+        runLegacyInternalCellEdit,
+      };
+
+      const TRAIL_OPS = new Set([
+        'init', 'ackExternalDrafts', 'persistSessionEntries',
+        'janeTrailNew', 'janeTrailFork', 'janeTrailSwitch', 'janeTrailRename', 'janeTrailDelete',
+      ]);
+      const AGENT_OPS = new Set([
+        'bootstrap', 'agentPrompt', 'janeSessionBootstrap', 'janeSessionRun',
+        'editCellCode', 'abortAgent',
+      ]);
+      const FILE_OPS = new Set(['readConfig', 'writeConfig', 'exportJson']);
+      const KERNEL_OPS = new Set(['executeCell', 'getKernelStatus', 'kernelControl']);
+
       panel.webview.onDidReceiveMessage(async (msg) => {
-        switch (msg.type) {
-          case 'init': {
-            setPanelState(configDir, { open: true });
-            const files = findYamlFiles(configDir, configDir);
-            const userDefaultSettings = context.globalState.get('userDefaultSettings', null);
-            const pinnedKey = 'pinnedFields:' + configDir;
-            const pinnedFields = context.workspaceState.get(pinnedKey, {});
-            const defaultPromptTemplate = fs.readFileSync(
-              path.join(context.extensionPath, 'ecosystem', 'prompts', 'system.md'), 'utf8'
-            );
-            // Mask keys for display (show last 4 chars only)
-            const maskedKeys = {
-              anthropic: apiKeys.anthropic ? '••••' + apiKeys.anthropic.slice(-4) : '',
-              openai: apiKeys.openai ? '••••' + apiKeys.openai.slice(-4) : '',
-            };
-            let janeSession = janeRuntime.getSession();
-            const legacyAdditionalInstructions = context.globalState.get('additionalInstructions', '');
-            if (!janeSession.additionalInstructions && legacyAdditionalInstructions) {
-              janeSession = janeRuntime.setSessionInstructions(legacyAdditionalInstructions);
-            }
-            const codingAgents = await listCodingAgents();
-            const trailState = janeRuntime.listTrails();
-            updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
-            panel.webview.postMessage({
-              type: 'init',
-              files,
-              configDir,
-              userDefaultSettings,
-              pinnedFields,
-              defaultPromptTemplate,
-              apiKeys: maskedKeys,
-              additionalInstructions: janeSession.additionalInstructions,
-              session: janeSession,
-              trails: trailState.trails,
-              activeTrail: trailState.activeTrail,
-              codingAgents,
-              defaultCodingAgentId: pickDefaultCodingAgentId(codingAgents),
-            });
-            sendModelList(panel);
-            // Send webview-context tools for registration
-            const initTools = loadAllTools(context.extensionPath);
-            const webviewTools = initTools
-              .filter(t => t.context === 'webview')
-              .map(t => ({ name: t.name, code: t.code }));
-            panel.webview.postMessage({ type: 'registerTools', tools: webviewTools });
-            break;
-          }
-          case 'ackExternalDrafts': {
-            acknowledgeExternalDrafts(configDir, msg.ids || []);
-            break;
-          }
-          case 'persistSessionEntries': {
-            suppressLocalSessionSync(configDir);
-            janeRuntime.replaceSessionEntries(msg.entries || []);
-            break;
-          }
-          case 'janeTrailNew': {
-            suppressLocalSessionSync(configDir);
-            const result = janeRuntime.createTrail({ name: msg.name || '' });
-            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
-            panel.webview.postMessage({
-              type: 'trailState',
-              action: 'new',
-              session: janeRuntime.getSession(),
-              trails: result.trails,
-              activeTrail: result.activeTrail,
-            });
-            break;
-          }
-          case 'janeTrailFork': {
-            suppressLocalSessionSync(configDir);
-            const result = janeRuntime.forkTrail({
-              name: msg.name || '',
-              sourceTrailId: msg.sourceTrailId || '',
-            });
-            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
-            panel.webview.postMessage({
-              type: 'trailState',
-              action: 'fork',
-              session: janeRuntime.getSession(),
-              trails: result.trails,
-              activeTrail: result.activeTrail,
-            });
-            break;
-          }
-          case 'janeTrailSwitch': {
-            suppressLocalSessionSync(configDir);
-            const result = janeRuntime.switchTrail({ trailId: msg.trailId || '' });
-            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
-            panel.webview.postMessage({
-              type: 'trailState',
-              action: 'switch',
-              session: janeRuntime.getSession(),
-              trails: result.trails,
-              activeTrail: result.activeTrail,
-            });
-            break;
-          }
-          case 'janeTrailRename': {
-            suppressLocalSessionSync(configDir);
-            const result = janeRuntime.renameTrail({
-              trailId: msg.trailId || '',
-              name: msg.name || '',
-            });
-            updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
-            panel.webview.postMessage({
-              type: 'trailState',
-              action: 'rename',
-              session: janeRuntime.getSession(),
-              trails: result.trails,
-              activeTrail: result.activeTrail,
-            });
-            break;
-          }
-          case 'listModels': {
-            sendModelList(panel);
-            break;
-          }
-          case 'connectCodingAgent': {
-            try {
-              const result = await connectCodingAgent({
-                agentId: String(msg.agentId || ''),
-                janeRuntime,
-              });
-              panel.webview.postMessage({
-                type: 'codingAgentConnected',
-                agent: result.agent,
-                launchMode: result.launchMode,
-                promptCopied: result.promptCopied,
-              });
-            } catch (e) {
-              panel.webview.postMessage({
-                type: 'codingAgentConnectionError',
-                error: e.message,
-              });
-            }
-            break;
-          }
-          case 'saveUserDefaults': {
-            context.globalState.update('userDefaultSettings', msg.settings);
-            break;
-          }
-          case 'savePinned': {
-            const pinnedKey = 'pinnedFields:' + configDir;
-            context.workspaceState.update(pinnedKey, msg.pinned);
-            break;
-          }
-          case 'readConfig': {
-            try {
-              const filePath = path.resolve(configDir, msg.filename);
-              const safeBase = path.resolve(configDir) + path.sep;
-              if (!filePath.startsWith(safeBase)) {
-                panel.webview.postMessage({ type: 'configData', error: 'Invalid path' });
-                return;
-              }
-              const raw    = fs.readFileSync(filePath, 'utf8');
-              const docs   = yaml.loadAll(raw);
-              const docKey = docs.length === 1 ? null : msg.filename.replace(/\.ya?ml$/i, '');
-              const parsed = docKey ? { [docKey]: docs } : docs[0];
-              panel.webview.postMessage({ type: 'configData', filename: msg.filename, raw, parsed });
-            } catch (e) {
-              panel.webview.postMessage({ type: 'configData', error: e.message });
-            }
-            break;
-          }
-          case 'writeConfig': {
-            try {
-              const filePath = path.resolve(configDir, msg.filename);
-              const safeBase = path.resolve(configDir) + path.sep;
-              if (!filePath.startsWith(safeBase)) {
-                panel.webview.postMessage({ type: 'writeResult', error: 'Invalid path' });
-                return;
-              }
-              let output;
-              const docKey = msg.filename.replace(/\.ya?ml$/i, '');
-              if (msg.data && Array.isArray(msg.data[docKey])) {
-                output = msg.data[docKey].map(d => yaml.dump(d, { flowLevel: -1, sortKeys: false })).join('---\n');
-              } else {
-                output = yaml.dump(msg.data, { flowLevel: -1, sortKeys: false });
-              }
-              fs.writeFileSync(filePath, output, 'utf8');
-              panel.webview.postMessage({ type: 'writeResult', success: true, filename: msg.filename });
-            } catch (e) {
-              panel.webview.postMessage({ type: 'writeResult', error: e.message });
-            }
-            break;
-          }
-          case 'bootstrap':
-          case 'agentPrompt':
-          case 'janeSessionBootstrap':
-          case 'janeSessionRun': {
-            const isBootstrap = msg.type === 'bootstrap' || msg.type === 'janeSessionBootstrap';
-            (async () => {
-              try {
-                const tokenSource = new vscode.CancellationTokenSource();
-                activeTokenSources.set(configDir, tokenSource);
-                const agentResult = isBootstrap
-                  ? await janeRuntime.bootstrapSession({
-                    modelId: msg.modelId || '',
-                    schemata: msg.schemata || [],
-                    dashboardState: msg.dashboardState || null,
-                    apiKeys,
-                    vscodeApi: vscode,
-                    panel,
-                    token: tokenSource.token,
-                    execFileAsync,
-                    persistConfigChanges: false,
-                    onUsage: (usage) => {
-                      panel.webview.postMessage({
-                        type: 'tokenUsage',
-                        input: usage.input,
-                        output: usage.output,
-                      });
-                    },
-                  })
-                  : await janeRuntime.runSessionTurn({
-                    prompt: msg.prompt || '',
-                    modelId: msg.modelId || '',
-                    schemata: msg.schemata || [],
-                    dashboardState: msg.dashboardState || null,
-                    apiKeys,
-                    vscodeApi: vscode,
-                    panel,
-                    token: tokenSource.token,
-                    execFileAsync,
-                    persistConfigChanges: false,
-                    onUsage: (usage) => {
-                      panel.webview.postMessage({
-                        type: 'tokenUsage',
-                        input: usage.input,
-                        output: usage.output,
-                      });
-                    },
-                  });
-
-                activeTokenSources.delete(configDir);
-                panel.webview.postMessage({
-                  type: 'janeSessionResult',
-                  mode: isBootstrap ? 'bootstrap' : 'turn',
-                  answer: agentResult.answer,
-                  summary: agentResult.summary,
-                  ops: agentResult.ops,
-                  executedCells: agentResult.executedCells,
-                  artifacts: agentResult.artifacts,
-                  session: agentResult.session,
-                  entry: agentResult.entry,
-                  modelId: agentResult.modelId,
-                  error: agentResult.error,
-                });
-
-              } catch (e) {
-                activeTokenSources.delete(configDir);
-                // Don't send error for user-initiated cancellations
-                if (e.message && e.message.includes('cancelled')) return;
-                panel.webview.postMessage({
-                  type: 'janeSessionResult',
-                  mode: isBootstrap ? 'bootstrap' : 'turn',
-                  ops: [],
-                  answer: null,
-                  error: isBootstrap ? undefined : (e.message || String(e)),
-                });
-              }
-            })();
-            break;
-          }
-          case 'editCellCode': {
-            (async () => {
-              try {
-                const sessionInstructions = janeRuntime.getSession().additionalInstructions || '';
-                let result;
-
-                if (msg.agentId) {
-                  const activeSession = janeRuntime.getSession();
-                  result = await runExternalCellEditWithRetries({
-                    agentId: msg.agentId,
-                    code: msg.code || '',
-                    instruction: msg.instruction || '',
-                    language: msg.language || 'python',
-                    output: msg.output || '',
-                    configDir,
-                    sessionInstructions,
-                    panel,
-                    trailId: msg.trailId || activeSession.trailId || '',
-                  });
-                } else {
-                  result = await runLegacyInternalCellEdit({
-                    code: msg.code || '',
-                    instruction: msg.instruction || '',
-                    modelId: msg.modelId || '',
-                  });
-                }
-
-                panel.webview.postMessage({
-                  type: 'editCellCodeResult',
-                  requestId: msg.requestId || '',
-                  cellId: msg.cellId || '',
-                  code: result.code || null,
-                  output: Object.prototype.hasOwnProperty.call(result, 'output') ? result.output : undefined,
-                  attempts: result.attempts || 1,
-                  validated: !!result.validated,
-                  validationError: result.error || '',
-                  agentId: msg.agentId || '',
-                });
-              } catch (e) {
-                panel.webview.postMessage({
-                  type: 'editCellCodeResult',
-                  requestId: msg.requestId || '',
-                  cellId: msg.cellId || '',
-                  error: e.message,
-                });
-              }
-            })();
-            break;
-          }
-          case 'executeCell': {
-            (async () => {
-              try {
-                const activeSession = janeRuntime.getSession();
-                const request = {
-                  language: msg.language || 'python',
-                  configDir,
-                  trailId: msg.trailId || activeSession.trailId || '',
-                };
-                const result = await executeNotebookCell({
-                  language: request.language,
-                  code: msg.code,
-                  configDir,
-                  extensionPath: __dirname,
-                  execFileAsync,
-                  panel,
-                  trailId: request.trailId,
-                });
-                panel.webview.postMessage({
-                  type: 'executeCellResult',
-                  requestId: msg.requestId || '',
-                  cellId: msg.cellId || '',
-                  result,
-                  status: getNotebookKernelManager().getStatus(request),
-                });
-              } catch (e) {
-                const activeSession = janeRuntime.getSession();
-                const request = {
-                  language: msg.language || 'python',
-                  configDir,
-                  trailId: msg.trailId || activeSession.trailId || '',
-                };
-                panel.webview.postMessage({
-                  type: 'executeCellResult',
-                  requestId: msg.requestId || '',
-                  cellId: msg.cellId || '',
-                  error: e.message || String(e),
-                  status: getNotebookKernelManager().getStatus(request),
-                });
-              }
-            })();
-            break;
-          }
-          case 'getKernelStatus': {
-            const activeSession = janeRuntime.getSession();
-            const request = {
-              language: msg.language || 'python',
-              configDir,
-              trailId: msg.trailId || activeSession.trailId || '',
-            };
-            panel.webview.postMessage({
-              type: 'kernelStatusResult',
-              requestId: msg.requestId || '',
-              status: getNotebookKernelManager().getStatus(request),
-            });
-            break;
-          }
-          case 'kernelControl': {
-            (async () => {
-              const activeSession = janeRuntime.getSession();
-              const request = {
-                language: msg.language || 'python',
-                configDir,
-                trailId: msg.trailId || activeSession.trailId || '',
-              };
-              try {
-                let result;
-                const manager = getNotebookKernelManager();
-                if (msg.action === 'interrupt') {
-                  result = await manager.interrupt(request);
-                } else if (msg.action === 'restart') {
-                  result = await manager.restart(request);
-                } else {
-                  throw new Error(`Unsupported kernel action: ${msg.action || ''}`);
-                }
-                panel.webview.postMessage({
-                  type: 'kernelControlResult',
-                  requestId: msg.requestId || '',
-                  action: msg.action || '',
-                  ...result,
-                });
-              } catch (e) {
-                panel.webview.postMessage({
-                  type: 'kernelControlResult',
-                  requestId: msg.requestId || '',
-                  action: msg.action || '',
-                  ok: false,
-                  message: e.message || String(e),
-                  status: getNotebookKernelManager().getStatus(request),
-                });
-              }
-            })();
-            break;
-          }
-          case 'saveAdditionalInstructions':
-          case 'janeSessionSetInstructions': {
-            janeRuntime.setSessionInstructions(msg.text || '');
-            context.globalState.update('additionalInstructions', msg.text || '');
-            break;
-          }
-          case 'setAgentModel':
-          case 'janeSessionSetModel': {
-            janeRuntime.setSessionModel(msg.modelId || '');
-            break;
-          }
-          case 'setApiKey': {
-            if (msg.provider === 'anthropic') apiKeys.anthropic = msg.key || '';
-            else if (msg.provider === 'openai') apiKeys.openai = msg.key || '';
-            // Store in VS Code SecretStorage (encrypted by OS keychain)
-            if (msg.key) {
-              context.secrets.store('apiKey:' + msg.provider, msg.key);
-            } else {
-              context.secrets.delete('apiKey:' + msg.provider);
-            }
-            sendModelList(panel);
-            break;
-          }
-          case 'abortAgent': {
-            const ts = activeTokenSources.get(configDir);
-            if (ts) {
-              ts.cancel();
-              activeTokenSources.delete(configDir);
-            }
-            break;
-          }
-          case 'openUrl': {
-            const url = msg.url;
-            if (url && /^https?:\/\//.test(url)) {
-              vscode.env.openExternal(vscode.Uri.parse(url));
-            }
-            break;
-          }
-          case 'exportJson': {
-            try {
-              const filePath = path.resolve(configDir, msg.filename);
-              const safeBase = path.resolve(configDir) + path.sep;
-              if (!filePath.startsWith(safeBase)) {
-                panel.webview.postMessage({ type: 'exportJsonResult', error: 'Invalid path' });
-                return;
-              }
-              const jsonFilename = msg.filename.replace(/\.ya?ml$/i, '.json');
-              const jsonPath = path.resolve(configDir, jsonFilename);
-              fs.writeFileSync(jsonPath, JSON.stringify(msg.data, null, 2), 'utf8');
-              panel.webview.postMessage({ type: 'exportJsonResult', success: true, jsonFilename });
-            } catch (e) {
-              panel.webview.postMessage({ type: 'exportJsonResult', error: e.message });
-            }
-            break;
-          }
-        }
+        if (TRAIL_OPS.has(msg.type)) return handleTrailOp(msg, handlerCtx);
+        if (AGENT_OPS.has(msg.type)) return handleAgentOp(msg, handlerCtx);
+        if (FILE_OPS.has(msg.type)) return handleFileOp(msg, handlerCtx);
+        if (KERNEL_OPS.has(msg.type)) return handleKernelOp(msg, handlerCtx);
+        return handleSettingsOp(msg, handlerCtx);
       }, undefined, context.subscriptions);
 
     } catch (e) {
