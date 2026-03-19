@@ -2,11 +2,9 @@
 
 Selva is a MCP-backed workspace for scientific projects through a notebook-style agent interface. It combines a visual YAML dashboard, a persisted notebook with stateful Python kernel, Trail-based session management, and an MCP server for external coding agents.
 
-## Selva snapshot
+### Selva snapshot
 
 ![Selva screenshot](Screenshot.png)
-
-## Core Concepts
 
 ### Jane (Jupyter-like Agentic Notebook Engine)
 
@@ -22,13 +20,13 @@ Python execution is stateful within the active Trail — variables persist acros
 
 Large datasets should be loaded from disk in code, not pushed into model context.
 
-## Tooling
+### Tooling
 
 Selva exposes workspace tools (deterministic operations on YAML files and Python execution) and Jane session tools (notebook/Trail management) via MCP. Tools include `execute_python`, `get_file_schema`, `setValue`, `lockField`, `pinField`, `propose_tool`, and the full `jane_*` session API.
 
 The `propose_tool` system lets agents create new reusable tools at runtime, persisted to `~/.selva/ecosystem/tools/`.
 
-## Architecture
+### Architecture
 
 - `extension.js` — VS Code activation, panel lifecycle, message bridge
 - `mcp-server.js` — stdio MCP server for external agents
@@ -40,13 +38,13 @@ The `propose_tool` system lets agents create new reusable tools at runtime, pers
 - `ecosystem/tools/` — built-in tool implementations
 - `media/` — notebook/dashboard UI
 
-## Requirements
+### Requirements
 
 - VS Code `^1.95.0`
 - Python 3 available as `python3`
 - Optional: `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` for direct API access
 
-## Development
+### Development
 
 ```bash
 npm install
