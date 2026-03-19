@@ -807,6 +807,7 @@ document.querySelectorAll('.dash-panel-header[data-action="toggle-panel"]').forE
     if (e.target.closest('.pin-clear-btn')) return;
     if (e.target.closest('nav')) return;
     if (e.target.closest('.tab')) return;
+    if (e.target.closest('.notebook-header-toolbar')) return;
     const panel = header.closest('.dash-panel');
     panel.classList.toggle('collapsed');
   });
@@ -1166,10 +1167,9 @@ requestNotebookKernelStatus();
 function _triggerBootstrap() {
   if (state._bootstrapDone) return;
   setAgentBusy(true);
-  const schemata = buildAllSchemata();
   vscode.postMessage({
     type: 'janeSessionBootstrap',
-    schemata,
+    pendingEdits: buildPendingEdits(),
     modelId: state.agentModelId,
   });
 }

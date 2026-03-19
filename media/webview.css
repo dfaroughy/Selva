@@ -85,19 +85,18 @@ header {
   flex-shrink: 0;
 }
 .selva-logo {
-  height: 54px;
+  height: 53px;
   width: auto;
   color: transparent;
   filter:
-    drop-shadow(0 0 3px var(--accent))
-    drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 60%, transparent))
-    drop-shadow(0 0 20px color-mix(in srgb, var(--accent) 35%, transparent))
-    drop-shadow(0 0 40px color-mix(in srgb, var(--accent) 15%, transparent));
+    drop-shadow(0 0 2px var(--accent))
+    drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent))
+    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 30%, transparent));
 }
 .selva-logo path {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 4;
+  stroke-width: 10;
 }
 .header-left .project-badge {
   font-size: 12px;
@@ -385,7 +384,7 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 24px;
+  padding: 7px 2px;
   background: var(--bg-1);
   cursor: pointer;
   user-select: none;
@@ -465,6 +464,7 @@ nav#data-tabs:empty { display: none; }
   border-bottom: none;
   color: var(--color-label);
   font-size: var(--font-size-base);
+  text-transform: lowercase;
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
@@ -1553,44 +1553,77 @@ kbd {
   margin-bottom: 0;
   padding-bottom: 2px;
 }
-.notebook-add-bar,
-#notebook-add-bar {
-  padding: 0 24px 10px;
-  margin-bottom: 8px;
+/* ── Notebook panel (collapsible, matches dash-panel style) ── */
+#notebook-panel {
+  order: -1;
+}
+#notebook-panel > .dash-panel-header {
   border-bottom: 1px solid var(--border);
 }
-#notebook-add-bar.hidden { display: none; }
-.notebook-toolbar-wrap {
+.notebook-trail-name-label {
+  font-family: var(--font-field);
+  font-size: var(--font-size-base);
+  text-transform: lowercase;
+  color: var(--color-label);
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 16px;
+}
+#notebook-panel.collapsed > .dash-panel-body { display: none; }
+.notebook-trail-logo {
+  color: var(--color-field);
+  flex-shrink: 0;
+}
+/* All panel header logos use field color */
+.dash-panel-title svg,
+.dash-panel-header svg {
+  color: var(--color-field);
+}
+.notebook-header-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.notebook-toolbar-meta {
+  gap: 4px;
+  flex-shrink: 0;
   margin-left: auto;
+}
+.notebook-toolbar-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-family: var(--font-badge);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: center;
+}
+.notebook-toolbar-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.notebook-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.notebook-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 .notebook-add-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
-}
-.notebook-add-btn {
-  min-width: 30px;
-  padding: 4px 8px;
-  font-family: var(--font-badge);
-  font-size: 15px;
-  line-height: 1;
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
-}
-.notebook-add-btn:hover {
-  border-color: var(--accent);
 }
 #notebook-add-menu {
   position: absolute;
@@ -1614,15 +1647,7 @@ kbd {
 .notebook-kernel-toolbar {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.notebook-trail-name {
-  font-family: var(--font-field);
-  font-size: 11px;
-  color: var(--field-color, var(--accent));
-  white-space: nowrap;
+  gap: 4px;
 }
 .notebook-kernel-pill {
   display: inline-flex;
@@ -1637,8 +1662,8 @@ kbd {
   font-size: 10px;
   color: var(--field-color, var(--accent));
   letter-spacing: 0.02em;
-  text-transform: none;
-  font-variant: all-small-caps;
+  text-transform: lowercase;
+  font-variant: normal;
 }
 .notebook-kernel-dot {
   width: 7px;
@@ -1787,6 +1812,89 @@ a.agent-link:hover { opacity: 0.8; }
   padding-left: 8px;
   padding-right: 8px;
 }
+/* Python cell: In/Out gutter in left margin, selection = left border */
+.nb-cells {
+  margin-left: 20px;
+}
+.nb-python {
+  position: relative;
+  border: none;
+  background: transparent;
+}
+.nb-python .nb-cell-toolbar,
+.nb-python .py-cell {
+  background: var(--bg-1);
+}
+.nb-python .nb-cell-toolbar {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  transition: border-left-color 0.15s ease;
+}
+.nb-python .py-cell {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  transition: border-left-color 0.15s ease;
+}
+.nb-python.nb-cell-selected .nb-cell-toolbar,
+.nb-python.nb-cell-selected .py-cell {
+  border-left-color: var(--accent);
+}
+/* Margin play button (top of cell, aligned with toolbar) */
+.nb-margin-run {
+  position: absolute;
+  left: -28px;
+  top: 0px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nb-python:hover .nb-margin-run,
+.nb-margin-run.nb-margin-running {
+  opacity: 1;
+}
+.nb-margin-run:hover {
+  color: var(--accent);
+}
+.nb-margin-run.nb-margin-running {
+  color: var(--accent);
+}
+/* Cell number index (bottom of cell in margin) */
+.nb-cell-index {
+  position: absolute;
+  left: -50px;
+  bottom: 8px;
+  font-family: var(--font-badge);
+  font-size: 10px;
+  color: var(--text-2);
+  opacity: 0.5;
+  white-space: nowrap;
+  user-select: none;
+  text-align: right;
+  width: 40px;
+}
+/* CodeMirror line numbers: discrete, light gray */
+.py-cell .CodeMirror-linenumber {
+  color: var(--text-2);
+  opacity: 0.4;
+  font-size: 10px;
+  padding: 0 4px 0 0;
+  min-width: 20px;
+}
+.py-cell .CodeMirror-gutters {
+  background: transparent;
+  border-right: none;
+}
 .nb-python .nb-toggle,
 .nb-python .nb-close {
   opacity: 0;
@@ -1810,9 +1918,66 @@ a.agent-link:hover { opacity: 0.8; }
 }
 /* Output area (Python cells) */
 .nb-output {
-  border-top: 1px solid var(--border);
+  border: none;
   padding: 6px 8px;
-  background: var(--bg-0);
+  background: transparent;
+}
+/* Output margin menu (three dots) */
+.nb-output-menu-wrap {
+  position: relative;
+  height: 0;
+  overflow: visible;
+}
+.nb-output-menu-wrap.hidden { display: none; }
+.nb-output-dots {
+  position: absolute;
+  left: -28px;
+  top: -14px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  opacity: 0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+}
+.nb-python:hover .nb-output-dots {
+  opacity: 0.5;
+}
+.nb-output-dots:hover {
+  opacity: 1 !important;
+  color: var(--text-1);
+}
+.nb-output-dropdown {
+  position: absolute;
+  top: -14px;
+  left: -24px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.nb-output-dropdown.hidden { display: none; }
+.nb-output-dropdown-item {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+.nb-output-dropdown-item:hover {
+  color: var(--text-0);
+  background: var(--bg-2);
 }
 .nb-output.hidden { display: none; }
 .nb-output-text { font-family: var(--font-badge); font-size: 11px; color: var(--text-1); margin: 0; white-space: pre-wrap; }
@@ -1821,7 +1986,7 @@ a.agent-link:hover { opacity: 0.8; }
 .nb-output-empty { font-size: 10px; color: var(--text-2); opacity: 0.6; }
 .nb-output .agent-plot { margin: 4px 0; }
 /* Notebook entry (prompt + cells) */
-.nb-entry { padding: 4px 24px; }
+.nb-entry { padding: 4px 14px; }
 .nb-entry + .nb-entry { padding-top: 0; }
 .nb-entry-error .nb-prompt-text { color: #f78166; }
 .nb-prompt-cell {

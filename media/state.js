@@ -19,11 +19,11 @@ const THEMES = {
             '--border':'#1a2e20','--text-0':'#e0efe6','--text-1':'#b8d4c8','--text-2':'#6d9a80',
             ...DARK_BADGES }
   },
-  midnight: {
-    label: 'Midnight', bg: '#0d1117',
-    defaults: { labelColor: '#c9d1d9', fieldColor: '#58a6ff', accentColor: '#58a6ff' },
-    vars: { '--bg-0':'#0d1117','--bg-1':'#161b22','--bg-2':'#21262d','--bg-3':'#30363d',
-            '--border':'#30363d','--text-0':'#e6edf3','--text-1':'#c9d1d9','--text-2':'#8b949e',
+  claudius: {
+    label: 'Claudius', bg: '#010409',
+    defaults: { labelColor: '#E6EDF3', fieldColor: '#58A6FF', accentColor: '#FFA198' },
+    vars: { '--bg-0':'#010409','--bg-1':'#010409','--bg-2':'#0d1117','--bg-3':'#161b22',
+            '--border':'#21262d','--text-0':'#F0F6FC','--text-1':'#E6EDF3','--text-2':'#8b949e',
             ...DARK_BADGES }
   },
   slate: {
@@ -39,37 +39,6 @@ const THEMES = {
     vars: { '--bg-0':'#2e3440','--bg-1':'#3b4252','--bg-2':'#434c5e','--bg-3':'#4c566a',
             '--border':'#4c566a','--text-0':'#eceff4','--text-1':'#d8dee9','--text-2':'#81a1c1',
             ...DARK_BADGES }
-  },
-  forest: {
-    label: 'Forest', bg: '#1a2218',
-    defaults: { labelColor: '#b8c8a8', fieldColor: '#56a869', accentColor: '#56a869' },
-    vars: { '--bg-0':'#1a2218','--bg-1':'#222d1f','--bg-2':'#2b3828','--bg-3':'#374432',
-            '--border':'#374432','--text-0':'#e0ead8','--text-1':'#b8c8a8','--text-2':'#7a9468',
-            ...DARK_BADGES }
-  },
-  light: {
-    label: 'Light', bg: '#ffffff',
-    defaults: { labelColor: '#31363b', fieldColor: '#0969da', accentColor: '#0969da' },
-    vars: { '--bg-0':'#ffffff','--bg-1':'#f6f8fa','--bg-2':'#eef1f5','--bg-3':'#d0d7de',
-            '--border':'#d0d7de','--text-0':'#1f2328','--text-1':'#31363b','--text-2':'#57606a',
-            '--badge-str-bg':'#dcfce7',   '--badge-str-fg':'#15803d',
-            '--badge-float-bg':'#dbeafe', '--badge-float-fg':'#1d4ed8',
-            '--badge-int-bg':'#e0f2fe',   '--badge-int-fg':'#0369a1',
-            '--badge-bool-bg':'#f3e8ff',  '--badge-bool-fg':'#7c3aed',
-            '--badge-null-bg':'#fef3c7',  '--badge-null-fg':'#92400e',
-            '--badge-list-bg':'#fce7f3',  '--badge-list-fg':'#be185d' }
-  },
-  jupyter: {
-    label: 'Jupyter', bg: '#ffffff',
-    defaults: { labelColor: '#444444', fieldColor: '#337ab7', accentColor: '#F37626' },
-    vars: { '--bg-0':'#ffffff','--bg-1':'#f7f7f7','--bg-2':'#f5f5f5','--bg-3':'#e6e6e6',
-            '--border':'#dddddd','--text-0':'#222222','--text-1':'#444444','--text-2':'#777777',
-            '--badge-str-bg':'#e8f4e6',   '--badge-str-fg':'#2a6a2a',
-            '--badge-float-bg':'#e7f1fb', '--badge-float-fg':'#337ab7',
-            '--badge-int-bg':'#eef5fd',   '--badge-int-fg':'#2a6496',
-            '--badge-bool-bg':'#fef3e7',  '--badge-bool-fg':'#F37626',
-            '--badge-null-bg':'#f8f0d8',  '--badge-null-fg':'#8a6d3b',
-            '--badge-list-bg':'#f6edf9',  '--badge-list-fg':'#8e44ad' }
   },
   desert: {
     label: 'Desert', bg: '#f5f0e8',

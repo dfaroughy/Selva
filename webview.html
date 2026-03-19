@@ -97,34 +97,43 @@
   </div>
   <!-- Three-panel dashboard layout -->
   <div id="dashboard-panels">
-    <div id="agent-chat-log" class="hidden"></div>
-    <div id="notebook-add-bar">
-      <div class="notebook-toolbar-wrap">
-        <div class="notebook-add-wrap">
-          <button class="btn notebook-add-btn" id="notebook-add-btn" title="Add notebook cell">+</button>
-          <div id="notebook-add-menu" class="hidden">
-            <button class="btn notebook-add-option" data-cell-type="markdown">Markdown</button>
-            <button class="btn notebook-add-option" data-cell-type="python">Python</button>
+    <div class="dash-panel" id="notebook-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title">
+          <svg class="notebook-trail-logo" width="18" height="14" viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 16C4 16 6 10 12 10C18 10 20 16 20 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M2 12C2 12 5 4 12 2C19 4 22 12 22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+          </svg>
+          notebook
+        </span>
+        <span id="notebook-trail-name" class="notebook-trail-name-label">--</span>
+        <div class="notebook-header-toolbar ml-auto">
+          <div class="notebook-add-wrap">
+            <button class="btn notebook-toolbar-btn" id="notebook-add-btn" title="Add cell" onclick="event.stopPropagation()">+</button>
+            <div id="notebook-add-menu" class="hidden">
+              <button class="btn notebook-add-option" data-cell-type="markdown">Markdown</button>
+              <button class="btn notebook-add-option" data-cell-type="python">Python</button>
+            </div>
           </div>
-        </div>
-        <div class="notebook-toolbar-meta">
-          <span class="notebook-trail-name" id="notebook-trail-name">Notebook Trail: --</span>
-          <div class="notebook-kernel-toolbar" id="notebook-kernel-toolbar" aria-label="Kernel controls">
+          <span class="notebook-toolbar-sep"></span>
+          <button class="btn notebook-toolbar-btn" id="notebook-kernel-interrupt-btn" title="Interrupt" aria-label="Interrupt" onclick="event.stopPropagation()">
+            <span aria-hidden="true">&#9632;</span>
+          </button>
+          <button class="btn notebook-toolbar-btn" id="notebook-kernel-restart-btn" title="Restart kernel" aria-label="Restart kernel" onclick="event.stopPropagation()">
+            <span aria-hidden="true">&#8635;</span>
+          </button>
+          <span class="notebook-toolbar-sep"></span>
+          <div class="notebook-kernel-toolbar" id="notebook-kernel-toolbar" aria-label="Kernel status">
             <span class="notebook-kernel-pill kernel-cold" id="notebook-kernel-pill">
               <span class="notebook-kernel-dot" id="notebook-kernel-dot" aria-hidden="true"></span>
               <span class="notebook-kernel-status" id="notebook-kernel-status">kernel cold</span>
             </span>
-            <button class="btn notebook-kernel-btn" id="notebook-kernel-refresh-btn" title="Refresh kernel status" aria-label="Refresh kernel status">
-              <span aria-hidden="true">⟳</span><span>status</span>
-            </button>
-            <button class="btn notebook-kernel-btn" id="notebook-kernel-interrupt-btn" title="Interrupt current execution" aria-label="Interrupt current execution">
-              <span aria-hidden="true">■</span><span>interrupt</span>
-            </button>
-            <button class="btn notebook-kernel-btn" id="notebook-kernel-restart-btn" title="Restart kernel" aria-label="Restart kernel">
-              <span aria-hidden="true">↻</span><span>restart</span>
-            </button>
           </div>
         </div>
+      </div>
+      <div class="dash-panel-body">
+        <div id="agent-chat-log" class="hidden"></div>
       </div>
     </div>
     <!-- Pinned Panel -->

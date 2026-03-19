@@ -1,37 +1,33 @@
-// ── Agent schema builders ───────────────────────────────────
-function buildFileSchema(obj, path) {
-  const rows = [];
-  if (Array.isArray(obj)) {
-    for (let i = 0; i < obj.length; i++) {
-      const p = [...path, i];
-      const item = obj[i];
-      if (item !== null && typeof item === 'object') {
-        rows.push(...buildFileSchema(item, p));
-      } else {
-        rows.push({ path: p, value: item, type: typeof item });
-      }
-    }
-    return rows;
+// ── Pending edits (delta between original and current) ──────
+function buildPendingEdits() {
+  const edits = [];
+  for (const [file, cfg] of Object.entries(state.configs)) {
+    if (!cfg) continue;
+    _collectEdits(cfg.original, cfg.current, [], file, edits);
   }
-  for (const [k, v] of Object.entries(obj)) {
-    const p = [...path, k];
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      rows.push(...buildFileSchema(v, p));
-    } else if (Array.isArray(v)) {
-      rows.push(...buildFileSchema(v, p));
-    } else {
-      rows.push({ path: p, value: v, type: typeof v });
-    }
-  }
-  return rows;
+  return edits;
 }
 
-function buildAllSchemata() {
-  return Object.entries(state.configs).map(([file, cfg]) => ({
-    file,
-    raw: cfg.raw || '',
-    fields: buildFileSchema(cfg.current, []),
-  })).filter(s => s.fields.length > 0);
+function _collectEdits(orig, cur, pathArr, file, edits) {
+  if (orig === cur) return;
+  if (orig == null || cur == null || typeof orig !== typeof cur) {
+    edits.push({ file, path: pathArr, value: cur });
+    return;
+  }
+  if (typeof orig !== 'object') {
+    if (orig !== cur) edits.push({ file, path: pathArr, value: cur });
+    return;
+  }
+  if (Array.isArray(orig) && Array.isArray(cur)) {
+    if (JSON.stringify(orig) !== JSON.stringify(cur)) {
+      edits.push({ file, path: pathArr, value: cur });
+    }
+    return;
+  }
+  const keys = new Set([...Object.keys(orig), ...Object.keys(cur)]);
+  for (const k of keys) {
+    _collectEdits(orig[k], cur[k], [...pathArr, k], file, edits);
+  }
 }
 
 function buildDashboardState() {
@@ -100,6 +96,7 @@ function executeOps(ops) {
 let _agentRunning = false;
 let _timerInterval = null;
 let _timerStart = 0;
+let _pythonCellCounter = 0;
 
 function startTimer() {
   if (_timerInterval) clearInterval(_timerInterval);
@@ -296,7 +293,7 @@ let _mermaidIdCounter = 0;
 // ── Notebook cell system ─────────────────────────────────
 // Every block in the agent's answer is a "cell" with consistent controls
 
-const CELL_CLOSE_SVG = `<svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>`;
+const CELL_CLOSE_SVG = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M5.5 4V2.5a1 1 0 011-1h3a1 1 0 011 1V4"/><path d="M3.5 4v9a1.5 1.5 0 001.5 1.5h6a1.5 1.5 0 001.5-1.5V4"/></svg>`;
 const CELL_COPY_SVG = `<svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4"/></svg>`;
 const CELL_INSERT_UP_SVG = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.2v6.2"/><path d="M4.6 4.6L7 2.2l2.4 2.4"/><path d="M3 11h8"/><path d="M7 9.2v3.2"/><path d="M5.4 11h3.2"/></svg>`;
 const CELL_INSERT_DOWN_SVG = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11.8V5.6"/><path d="M4.6 9.4L7 11.8l2.4-2.4"/><path d="M3 3h8"/><path d="M7 1v3.2"/><path d="M5.4 3h3.2"/></svg>`;
@@ -599,7 +596,7 @@ function buildCodeMirrorEditor(host, initialCode, onRun) {
   const editor = window.CodeMirror(host, {
     value: initialCode || '',
     mode: 'python',
-    lineNumbers: false,
+    lineNumbers: true,
     lineWrapping: false,
     indentUnit: 4,
     tabSize: 4,
@@ -721,8 +718,22 @@ function buildCell(block) {
 
   // ── Python cell ────────────────────────────────────
   if (kind === 'python') {
-    const isExpanded = !!block.expanded;
     cell.dataset.lang = String(block.lang || 'python');
+    const cellNum = ++_pythonCellCounter;
+
+    // Margin play button (top of cell, aligned with header)
+    const marginRunBtn = document.createElement('button');
+    marginRunBtn.className = 'nb-margin-run';
+    marginRunBtn.title = 'Run (Shift+Enter)';
+    marginRunBtn.innerHTML = '<svg width="10" height="12" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg>';
+    cell.appendChild(marginRunBtn);
+
+    // Cell number index (bottom of cell in margin)
+    const cellIndex = document.createElement('div');
+    cellIndex.className = 'nb-cell-index';
+    cellIndex.textContent = `[${cellNum}]`;
+    cell.appendChild(cellIndex);
+
     const toolbar = _cellToolbar(
       `${PY_LOGO_SVG}` +
       `<button class="nb-cell-prompt-btn" title="Ask agent to edit this code">&gt;_</button>` +
@@ -730,18 +741,30 @@ function buildCell(block) {
       `<span class="py-toolbar-spacer"></span>` +
       `<button class="nb-insert nb-insert-up" title="Insert python cell above">${CELL_INSERT_UP_SVG}</button>` +
       `<button class="nb-insert nb-insert-down" title="Insert python cell below">${CELL_INSERT_DOWN_SVG}</button>` +
-      `<button class="nb-run" title="Run (Shift+Enter)"><svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span></button>` +
+      `<button class="nb-run" style="display:none"></button>` +
       `<button class="nb-copy" title="Copy">${CELL_COPY_SVG}</button>` +
-      `<span class="nb-toggle">${isExpanded ? ICON_COLLAPSE : ICON_EXPAND}</span>` +
       `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
     );
     cell.appendChild(toolbar);
+
+    // Click to select cell
+    cell.addEventListener('click', () => {
+      document.querySelectorAll('.nb-cell-selected').forEach(c => c.classList.remove('nb-cell-selected'));
+      cell.classList.add('nb-cell-selected');
+    });
     const runBtn = toolbar.querySelector('.nb-run');
     const copyBtn = toolbar.querySelector('.nb-copy');
     const insertUpBtn = toolbar.querySelector('.nb-insert-up');
     const insertDownBtn = toolbar.querySelector('.nb-insert-down');
     const playSvg = '<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span>';
     const stopSvg = '<svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg><span>Stop</span>';
+    const marginPlaySvg = '<svg width="10" height="12" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg>';
+    const marginStopSvg = '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="0" width="10" height="10" rx="1.5"/></svg>';
+    // Margin play button delegates to the hidden toolbar run button
+    marginRunBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      runBtn.click();
+    });
 
     // Cell-level agent prompt
     const promptBtn = toolbar.querySelector('.nb-cell-prompt-btn');
@@ -819,12 +842,11 @@ function buildCell(block) {
               toast('Code updated', 'success');
             }
             flushNotebookSessionPersist();
-            if (!hasExecutionResult) {
-              targetCell.dataset.runState = 'pending';
-              const targetRunBtn = targetCell.querySelector('.nb-run');
-              if (targetRunBtn && !targetRunBtn.disabled) {
-                requestAnimationFrame(() => targetRunBtn.click());
-              }
+            // Always auto-run after debug/edit
+            targetCell.dataset.runState = 'pending';
+            const targetRunBtn = targetCell.querySelector('.nb-run');
+            if (targetRunBtn && !targetRunBtn.disabled) {
+              requestAnimationFrame(() => targetRunBtn.click());
             }
           }
         };
@@ -853,30 +875,22 @@ function buildCell(block) {
 
     // Code area
     const codeWrap = document.createElement('div');
-    codeWrap.className = 'py-cell' + (isExpanded ? '' : ' collapsed');
+    codeWrap.className = 'py-cell';
     const codeEditorHost = document.createElement('div');
     codeEditorHost.className = 'py-cell-editor';
     codeWrap.appendChild(codeEditorHost);
+    codeWrap.appendChild(cellIndex);
     cell.appendChild(codeWrap);
 
     const codeEditor = buildCodeMirrorEditor(codeEditorHost, block.code || '', runCurrentCode);
     if (codeEditor) {
       cell._cmEditor = codeEditor;
-      if (isExpanded) {
-        requestAnimationFrame(() => {
-          codeEditor.refresh();
-          codeEditor.focus();
-        });
-      }
     } else {
       const codeArea = document.createElement('textarea');
       codeArea.className = 'py-cell-input';
       codeArea.value = block.code || '';
       codeArea.spellcheck = false;
       codeWrap.appendChild(codeArea);
-      if (isExpanded) {
-        requestAnimationFrame(() => codeArea.focus());
-      }
       codeArea.addEventListener('input', () => {
         scheduleNotebookSessionPersist();
       });
@@ -895,17 +909,51 @@ function buildCell(block) {
     cell.dataset.runState = normalizeNotebookPythonRunState(block.runState, initialOutput);
     output.className = 'nb-output' + (initialOutput ? '' : ' hidden');
     cell.appendChild(output);
-    if (initialOutput) _renderOutput(output, initialOutput);
+    if (initialOutput) {
+      _renderOutput(output, initialOutput);
+    }
 
-    // Toggle code visibility
-    const togEl = toolbar.querySelector('.nb-toggle');
-    togEl.addEventListener('click', () => {
-      codeWrap.classList.toggle('collapsed');
-      togEl.innerHTML = codeWrap.classList.contains('collapsed') ? ICON_EXPAND : ICON_COLLAPSE;
-      if (!codeWrap.classList.contains('collapsed') && cell._cmEditor) {
-        requestAnimationFrame(() => cell._cmEditor.refresh());
-      }
+    // Output margin menu (three dots → dropdown with clear/copy)
+    // Lives as a sibling after the output div, positioned absolutely
+    const outputMenuWrap = document.createElement('div');
+    outputMenuWrap.className = 'nb-output-menu-wrap' + (initialOutput ? '' : ' hidden');
+    const outputDots = document.createElement('button');
+    outputDots.className = 'nb-output-dots';
+    outputDots.innerHTML = '&#8943;';
+    outputDots.title = 'Output actions';
+    const outputDropdown = document.createElement('div');
+    outputDropdown.className = 'nb-output-dropdown hidden';
+    outputDropdown.innerHTML =
+      `<button class="nb-output-dropdown-item nb-output-clear" title="Clear output">` +
+      `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M5.5 4V2.5a1 1 0 011-1h3a1 1 0 011 1V4"/><path d="M3.5 4v9a1.5 1.5 0 001.5 1.5h6a1.5 1.5 0 001.5-1.5V4"/></svg>` +
+      `</button>` +
+      `<button class="nb-output-dropdown-item nb-output-copy-out" title="Copy output">` +
+      `${CELL_COPY_SVG}` +
+      `</button>`;
+    outputMenuWrap.appendChild(outputDots);
+    outputMenuWrap.appendChild(outputDropdown);
+    cell.appendChild(outputMenuWrap);
+
+    outputDots.addEventListener('click', (e) => {
+      e.stopPropagation();
+      outputDropdown.classList.toggle('hidden');
     });
+    outputDropdown.querySelector('.nb-output-clear').addEventListener('click', (e) => {
+      e.stopPropagation();
+      outputDropdown.classList.add('hidden');
+      output.dataset.rawResult = '';
+      output.className = 'nb-output hidden';
+      outputMenuWrap.classList.add('hidden');
+      _renderOutput(output, '');
+      scheduleNotebookSessionPersist();
+    });
+    outputDropdown.querySelector('.nb-output-copy-out').addEventListener('click', (e) => {
+      e.stopPropagation();
+      outputDropdown.classList.add('hidden');
+      const rawText = output.dataset.rawResult || output.textContent || '';
+      navigator.clipboard.writeText(rawText).then(() => toast('Output copied'));
+    });
+    document.addEventListener('click', () => outputDropdown.classList.add('hidden'));
 
     // Copy
     copyBtn.addEventListener('click', () => {
@@ -936,6 +984,8 @@ function buildCell(block) {
         this.disabled = false;
         this.innerHTML = playSvg;
         this.classList.remove('py-running');
+        marginRunBtn.innerHTML = marginPlaySvg;
+        marginRunBtn.classList.remove('nb-margin-running');
         if (msg.error) {
           targetCell.dataset.runState = 'error';
           _renderOutput(targetOutput, msg.error);
@@ -943,6 +993,8 @@ function buildCell(block) {
           targetCell.dataset.runState = looksLikeCellExecutionErrorText(msg.result) ? 'error' : 'done';
           _renderOutput(targetOutput, msg.result);
         }
+        // Show the output menu now that there's output
+        outputMenuWrap.classList.remove('hidden');
         if (msg.status) setNotebookKernelStatus(msg.status);
         else requestNotebookKernelStatus();
         flushNotebookSessionPersist();
@@ -951,6 +1003,10 @@ function buildCell(block) {
       this.disabled = true;
       this.innerHTML = stopSvg;
       this.classList.add('py-running');
+      marginRunBtn.innerHTML = marginStopSvg;
+      marginRunBtn.classList.add('nb-margin-running');
+      // Update execution counter on the cell index
+      cellIndex.textContent = `[${++_pythonCellCounter}]`;
       cell.dataset.runState = 'running';
       setNotebookKernelStatus({
         language: getNotebookCellLanguage(cell),
@@ -1169,9 +1225,9 @@ function addManualNotebookCell(kind) {
 }
 
 function updateNotebookComposerVisibility() {
-  const bar = document.getElementById('notebook-add-bar');
-  if (!bar) return;
-  bar.classList.toggle('hidden', settings.notebookMode === false);
+  const panel = document.getElementById('notebook-panel');
+  if (!panel) return;
+  panel.classList.toggle('hidden', settings.notebookMode === false);
   updateNotebookKernelToolbar();
 }
 
@@ -1217,21 +1273,19 @@ function updateNotebookKernelToolbar() {
   const trailName = document.getElementById('notebook-trail-name');
   const interruptBtn = document.getElementById('notebook-kernel-interrupt-btn');
   const restartBtn = document.getElementById('notebook-kernel-restart-btn');
-  const refreshBtn = document.getElementById('notebook-kernel-refresh-btn');
-  if (!bar || !pill || !label || !trailName || !interruptBtn || !restartBtn || !refreshBtn) return;
+  if (!pill || !label || !trailName) return;
 
   const notebookHidden = settings.notebookMode === false;
-  bar.classList.toggle('hidden', notebookHidden);
+  if (bar) bar.classList.toggle('hidden', notebookHidden);
   if (notebookHidden) return;
 
   const kernelState = normalizeNotebookKernelState((state.kernelStatus || {}).state);
   pill.className = `notebook-kernel-pill kernel-${kernelState}`;
   label.textContent = getNotebookKernelLabel(kernelState);
-  trailName.textContent = `Notebook Trail: ${state.activeTrailName || '--'}`;
+  trailName.textContent = state.activeTrailName || '--';
 
-  interruptBtn.disabled = kernelState !== 'busy';
-  restartBtn.disabled = kernelState === 'starting';
-  refreshBtn.disabled = false;
+  if (interruptBtn) interruptBtn.disabled = kernelState !== 'busy';
+  if (restartBtn) restartBtn.disabled = kernelState === 'starting';
 }
 
 function requestNotebookKernelStatus() {
@@ -1351,8 +1405,7 @@ function wireLinks(container) {
 
 // ── Agent prompt execution ──────────────────────────────────
 function _executeAgentPrompt(prompt) {
-  const schemata = buildAllSchemata();
-  if (!schemata.length) {
+  if (!state.files.length) {
     setAgentBusy(false);
     toast('No configs loaded', 'error');
     return;
@@ -1360,7 +1413,7 @@ function _executeAgentPrompt(prompt) {
   vscode.postMessage({
     type: 'janeSessionRun',
     prompt,
-    schemata,
+    pendingEdits: buildPendingEdits(),
     dashboardState: buildDashboardState(),
     modelId: state.agentModelId,
   });
