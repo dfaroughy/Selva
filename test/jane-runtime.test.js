@@ -91,7 +91,7 @@ test('builds a compact init payload for fresh external agents', async () => {
     assert.ok(init.availableTools.jane.includes('jane_get_instruction_pack'));
     assert.ok(init.availableTools.jane.includes('jane_trail_new'));
     assert.ok(init.availableTools.dashboardOps.includes('setValue'));
-    assert.ok(init.availableTools.workspace.includes('set_value'));
+    assert.ok(init.availableTools.workspace.some((t) => t.name === 'set_value'));
     assert.ok(init.dashboardState.lockedFieldCount <= 2);
     assert.ok(!init.recommendedFirstCalls.includes('jane_get_instruction_pack'));
   } finally {
@@ -141,8 +141,8 @@ test('builds a shared Jane instruction pack for external agents', async () => {
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_session_set_instructions', { text: 'Keep answers compact.' });
     const pack = await janeRuntime.handleSessionToolCall('jane_get_instruction_pack');
-    assert.strictEqual(pack.prompts.additionalInstructions, 'Keep answers compact.');
-    assert.ok(pack.prompts.bootstrapPrompt.includes('Classify each file'));
+    assert.ok(pack.prompts.additionalInstructions === 'Keep answers compact.' || pack.prompts.bitacora === 'Keep answers compact.');
+    assert.ok(pack.prompts.bootstrapPrompt.includes('CLASSIFY FILES'));
     assert.ok(pack.toolCatalog.dashboardOps.some((tool) => tool.name === 'setValue'));
     assert.ok(pack.toolCatalog.workspace.some((tool) => tool.name === 'execute_python'));
     assert.ok(pack.preferredFlow.includes('jane_add_cells'));

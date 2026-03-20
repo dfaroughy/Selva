@@ -287,6 +287,7 @@ function onSliderInput(slider) {
   if (input) input.value = String(val);
   const { path, file } = state.fieldMap[fid];
   setNestedValue(state.configs[file].current, path, val);
+  state.configs[file].dirty = true;
   refreshFieldState(fid);
   updateButtons();
   renderTabs();

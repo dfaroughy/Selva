@@ -54,7 +54,7 @@ function renderTabs() {
 function isModified(filename) {
   const c = state.configs[filename];
   if (!c) return false;
-  return JSON.stringify(c.original) !== JSON.stringify(c.current);
+  return !!c.dirty;
 }
 
 // ── Editor rendering ───────────────────────────────────────

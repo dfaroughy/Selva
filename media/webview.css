@@ -1166,6 +1166,8 @@ kbd {
   line-height: 1.5;
 }
 .editor-export-btn:hover { background: var(--bg-3); color: var(--text-0); border-color: var(--text-2); }
+.editor-export-btn .nb-export-icon { vertical-align: -2px; margin-right: 4px; opacity: 0.5; }
+.notebook-export-footer { margin-top: 24px; padding: 0 24px; }
 
 /* ── Agent CLI bar ───────────────────────────────── */
 #agent-bar {
@@ -1408,6 +1410,30 @@ kbd {
   padding: 0 18px 10px;
 }
 #agent-sysprompt-panel.hidden { display: none; }
+.sysprompt-columns {
+  display: flex;
+  gap: 12px;
+}
+.sysprompt-col {
+  flex: 1;
+  min-width: 0;
+}
+.bitacora-display {
+  width: 100%;
+  min-height: 180px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  color: var(--text-2);
+  font-family: var(--font-badge);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+}
 #trail-panel {
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
@@ -1741,6 +1767,7 @@ a.agent-link:hover { opacity: 0.8; }
   border-radius: var(--radius);
   overflow: visible;
   background: var(--bg-1);
+  width: 100%;
 }
 .nb-cell-toolbar {
   display: flex;
@@ -1805,21 +1832,22 @@ a.agent-link:hover { opacity: 0.8; }
   background: var(--bg-2);
 }
 .nb-markdown .nb-cell-body {
-  padding-left: 0;
-  padding-right: 0;
-}
-.nb-markdown:hover .nb-cell-body {
   padding-left: 8px;
   padding-right: 8px;
 }
 /* Python cell: In/Out gutter in left margin, selection = left border */
 .nb-cells {
   margin-left: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 .nb-python {
   position: relative;
   border: none;
   background: transparent;
+  width: 100ch;
+  max-width: 100%;
 }
 .nb-python .nb-cell-toolbar,
 .nb-python .py-cell {
@@ -1841,7 +1869,14 @@ a.agent-link:hover { opacity: 0.8; }
 }
 .nb-python.nb-cell-selected .nb-cell-toolbar,
 .nb-python.nb-cell-selected .py-cell {
-  border-left-color: var(--accent);
+  border-left-color: var(--color-field);
+}
+/* Human cells keep accent color for selection on the right (overrides above) */
+.nb-python.nb-cell-selected[data-author="human"] .nb-cell-toolbar,
+.nb-python.nb-cell-selected[data-author="human"] .py-cell,
+.nb-python.nb-cell-selected[data-author="user"] .nb-cell-toolbar,
+.nb-python.nb-cell-selected[data-author="user"] .py-cell {
+  border-left-color: var(--border);
 }
 /* Margin play button (top of cell, aligned with toolbar) */
 .nb-margin-run {
@@ -1922,7 +1957,7 @@ a.agent-link:hover { opacity: 0.8; }
   padding: 6px 8px;
   background: transparent;
 }
-/* Output margin menu (three dots) */
+/* Output margin menu (three dots) — anchored to first line of output */
 .nb-output-menu-wrap {
   position: relative;
   height: 0;
@@ -1932,7 +1967,7 @@ a.agent-link:hover { opacity: 0.8; }
 .nb-output-dots {
   position: absolute;
   left: -28px;
-  top: -14px;
+  top: 0;
   background: none;
   border: none;
   color: var(--text-2);
@@ -1954,7 +1989,7 @@ a.agent-link:hover { opacity: 0.8; }
 }
 .nb-output-dropdown {
   position: absolute;
-  top: -14px;
+  top: 0;
   left: -24px;
   display: flex;
   gap: 2px;
@@ -1980,8 +2015,8 @@ a.agent-link:hover { opacity: 0.8; }
   background: var(--bg-2);
 }
 .nb-output.hidden { display: none; }
-.nb-output-text { font-family: var(--font-badge); font-size: 11px; color: var(--text-1); margin: 0; white-space: pre-wrap; }
-.nb-output-error { font-family: var(--font-badge); font-size: 11px; color: #f78166; margin: 0; white-space: pre-wrap; }
+.nb-output-text { font-family: var(--font-badge); font-size: var(--font-size-base); color: var(--text-1); margin: 0; white-space: pre-wrap; }
+.nb-output-error { font-family: var(--font-badge); font-size: var(--font-size-base); color: #f78166; margin: 0; white-space: pre-wrap; }
 .nb-output-pending { font-size: 10px; color: var(--text-2); font-style: italic; }
 .nb-output-empty { font-size: 10px; color: var(--text-2); opacity: 0.6; }
 .nb-output .agent-plot { margin: 4px 0; }
@@ -1996,10 +2031,16 @@ a.agent-link:hover { opacity: 0.8; }
   display: flex;
   align-items: baseline;
   gap: 6px;
+  margin-left: 20px;
+  padding-right: 8px;
+  border-right: 2px solid var(--accent);
+  justify-content: flex-end;
+  text-align: right;
 }
-.nb-prompt-label { color: var(--accent); font-weight: 600; flex-shrink: 0; }
-.nb-prompt-text { flex: 1; color: var(--accent); }
+.nb-prompt-label { color: var(--accent); font-weight: 600; flex-shrink: 0; order: 1; }
+.nb-prompt-text { color: var(--accent); text-align: right; order: 2; }
 .nb-entry-actions {
+  order: 3;
   margin-left: auto;
   display: flex;
   gap: 4px;
@@ -2019,6 +2060,35 @@ a.agent-link:hover { opacity: 0.8; }
 }
 .nb-entry-dismiss:hover { color: #904040; }
 .nb-collapsed .nb-cells { display: none; }
+/* Human-authored cells: right-aligned with accent border on the RIGHT */
+.nb-cell[data-author="human"],
+.nb-cell[data-author="user"] {
+  align-self: flex-end;
+}
+.nb-cell[data-author="human"].nb-python .nb-cell-toolbar,
+.nb-cell[data-author="user"].nb-python .nb-cell-toolbar {
+  border-left: 1px solid var(--border);
+  border-right: 3px solid var(--border);
+  transition: border-right-color 0.15s ease;
+}
+.nb-cell[data-author="human"].nb-python .py-cell,
+.nb-cell[data-author="user"].nb-python .py-cell {
+  border-left: 1px solid var(--border);
+  border-right: 3px solid var(--border);
+  transition: border-right-color 0.15s ease;
+}
+.nb-cell[data-author="human"].nb-python.nb-cell-selected .nb-cell-toolbar,
+.nb-cell[data-author="human"].nb-python.nb-cell-selected .py-cell,
+.nb-cell[data-author="user"].nb-python.nb-cell-selected .nb-cell-toolbar,
+.nb-cell[data-author="user"].nb-python.nb-cell-selected .py-cell {
+  border-left-color: var(--border);
+  border-right-color: var(--accent);
+}
+.nb-cell[data-author="human"].nb-markdown,
+.nb-cell[data-author="user"].nb-markdown {
+  border-right: 2px solid var(--accent);
+  padding-right: 6px;
+}
 .nb-typing { color: var(--text-0); font-size: var(--font-size-base); white-space: pre-wrap; }
 /* Markdown cell editor */
 .nb-md-editor {

@@ -11,10 +11,6 @@ const { handleFileOp } = require('./handlers/file-ops');
 const { handleKernelOp } = require('./handlers/kernel-ops');
 const { handleSettingsOp } = require('./handlers/settings-ops');
 const {
-  callAnthropicAPI,
-  callOpenAIAPI,
-} = require('./lib/agent-core');
-const {
   disposeAllNotebookRuntimes,
 } = require('./lib/notebook-execution');
 const {
@@ -52,41 +48,6 @@ const os = require('os');
 
 // ── API key storage (in-memory per session) ────────────────
 const apiKeys = { anthropic: '', openai: '' };
-
-// Direct API model definitions
-const DIRECT_MODELS = {
-  anthropic: [
-    { id: 'direct:claude-sonnet-4-20250514', vendor: 'anthropic', family: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
-    { id: 'direct:claude-opus-4-20250514', vendor: 'anthropic', family: 'claude-opus-4', name: 'Claude Opus 4' },
-    { id: 'direct:claude-haiku-4-5-20251001', vendor: 'anthropic', family: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
-  ],
-  openai: [
-    { id: 'direct:gpt-4o', vendor: 'openai', family: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'direct:gpt-4o-mini', vendor: 'openai', family: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-    { id: 'direct:o3-mini', vendor: 'openai', family: 'o3-mini', name: 'o3-mini' },
-  ],
-};
-
-async function sendModelList(panel) {
-  const modelList = [];
-  // VS Code LM models
-  if (vscode.lm) {
-    try {
-      const allModels = await vscode.lm.selectChatModels({});
-      for (const m of (allModels || [])) {
-        modelList.push({ id: m.id, vendor: m.vendor, family: m.family, name: m.name || m.family });
-      }
-    } catch { /* ignore */ }
-  }
-  // Direct API models (only if key is set)
-  if (apiKeys.anthropic) {
-    for (const m of DIRECT_MODELS.anthropic) modelList.push(m);
-  }
-  if (apiKeys.openai) {
-    for (const m of DIRECT_MODELS.openai) modelList.push(m);
-  }
-  panel.webview.postMessage({ type: 'availableModels', models: modelList });
-}
 
 async function listCodingAgents() {
   const extensions = vscode.extensions.all.map((extension) => ({
@@ -570,43 +531,6 @@ async function runExternalCellEditWithRetries({
   };
 }
 
-async function runLegacyInternalCellEdit({ code, instruction, modelId }) {
-  const prompt = `Modify the following Python code according to this instruction: "${instruction}"\n\nCode:\n\`\`\`python\n${code}\n\`\`\`\n\nReturn ONLY the modified Python code. No explanation, no fences, no markdown — just the raw code.`;
-
-  const isDirectAPI = modelId && modelId.startsWith('direct:');
-  let result = '';
-
-  if (isDirectAPI) {
-    const isAnthropic = modelId.startsWith('direct:claude');
-    const apiKey = isAnthropic ? apiKeys.anthropic : apiKeys.openai;
-    if (!apiKey) throw new Error('No API key');
-    if (isAnthropic) {
-      const resp = await callAnthropicAPI(apiKey, modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
-      result = (resp.content || []).filter((block) => block.type === 'text').map((block) => block.text).join('');
-    } else {
-      const resp = await callOpenAIAPI(apiKey, modelId, 'You are a code editor. Return only modified code.', [{ role: 'user', content: prompt }], [], null);
-      result = resp.choices?.[0]?.message?.content || '';
-    }
-  } else if (vscode.lm) {
-    const allModels = await vscode.lm.selectChatModels({});
-    let model = modelId ? allModels.find((candidate) => candidate.id === modelId) : allModels[0];
-    if (!model && allModels.length) model = allModels[0];
-    if (model) {
-      const messages = [vscode.LanguageModelChatMessage.User(prompt)];
-      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-      for await (const chunk of response.text) { result += chunk; }
-    }
-  }
-
-  const parsed = parseCellEditAgentResponse(result);
-  return {
-    code: parsed.code || '',
-    output: '',
-    validated: false,
-    attempts: 1,
-  };
-}
-
 async function connectCodingAgent({ agentId, janeRuntime }) {
   const agents = await listCodingAgents();
   const agent = agents.find((candidate) => candidate.id === agentId);
@@ -616,7 +540,24 @@ async function connectCodingAgent({ agentId, janeRuntime }) {
 
   const initPayload = janeRuntime.buildInitPayload();
   const configDir = initPayload.configDir || janeRuntime.configDir;
-  const startupPrompt = buildCodingAgentConnectPrompt({ agent, initPayload });
+  const session = janeRuntime.getSession();
+  const startupPrompt = buildCodingAgentConnectPrompt({
+    agent,
+    initPayload,
+    extensionPath: __dirname,
+    bitacora: session.bitacora || '',
+    trailInstructions: session.additionalInstructions || '',
+  });
+  // Save the connect prompt to the trail folder for inspection
+  try {
+    const trailId = session.trailId || '';
+    if (trailId) {
+      const trailDir = path.join(getTrailsDir(configDir), trailId);
+      fs.mkdirSync(trailDir, { recursive: true });
+      fs.writeFileSync(path.join(trailDir, 'LAST_PROMPT.md'), startupPrompt, 'utf8');
+    }
+  } catch {}
+
   const workspaceMcpSync = ensureWorkspaceSelvaMcpConfig(configDir);
   let configSync = null;
 
@@ -658,27 +599,6 @@ function activate(context) {
   const jungleToolsDir = path.join(os.homedir(), '.selva', 'ecosystem', 'tools');
   fs.mkdirSync(jungleToolsDir, { recursive: true });
 
-  // Restore persisted API keys from secure storage
-  (async () => {
-    try {
-      apiKeys.anthropic = await context.secrets.get('apiKey:anthropic') || '';
-      apiKeys.openai = await context.secrets.get('apiKey:openai') || '';
-    } catch { /* secrets API not available */ }
-    // Migrate from old globalState (insecure) to secrets if needed
-    const oldAnth = context.globalState.get('apiKey:anthropic', '');
-    const oldOai = context.globalState.get('apiKey:openai', '');
-    if (oldAnth && !apiKeys.anthropic) {
-      apiKeys.anthropic = oldAnth;
-      context.secrets.store('apiKey:anthropic', oldAnth);
-      context.globalState.update('apiKey:anthropic', undefined); // delete insecure copy
-    }
-    if (oldOai && !apiKeys.openai) {
-      apiKeys.openai = oldOai;
-      context.secrets.store('apiKey:openai', oldOai);
-      context.globalState.update('apiKey:openai', undefined);
-    }
-  })();
-
   const cmd = vscode.commands.registerCommand('selva.open', async (uri) => {
     try {
       // ── Folder picker ──────────────────────────────────────
@@ -702,23 +622,6 @@ function activate(context) {
       // ── Reveal existing panel for this folder ──────────────
       if (panels.has(configDir)) {
         panels.get(configDir).reveal(vscode.ViewColumn.One);
-        return;
-      }
-
-      // ── Check folder contains YAML files ───────────────────
-      const hasYaml = (function scanDir(dir) {
-        let entries;
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
-        for (const entry of entries) {
-          if (entry.name.startsWith('.')) continue;
-          if (entry.isFile() && /\.ya?ml$/.test(entry.name)) return true;
-          if (entry.isDirectory() && scanDir(path.join(dir, entry.name))) return true;
-        }
-        return false;
-      })(configDir);
-
-      if (!hasYaml) {
-        vscode.window.showInformationMessage('Selva: No YAML files found in this folder.');
         return;
       }
 
@@ -837,7 +740,7 @@ function activate(context) {
           } catch { /* file may be mid-write */ }
         }, 300);
       });
-      const sessionWatcher = fs.watch(trailsDir, () => {
+      const sessionWatcher = fs.watch(trailsDir, { recursive: true }, () => {
         if (sessionWatcher._debounce) clearTimeout(sessionWatcher._debounce);
         sessionWatcher._debounce = setTimeout(() => {
           try {
@@ -871,22 +774,20 @@ function activate(context) {
         execFileAsync,
         extensionPath: __dirname,
         findYamlFiles,
-        sendModelList,
         updatePanelTitle,
         listCodingAgents,
         connectCodingAgent,
         suppressLocalSessionSync,
         pickDefaultCodingAgentId,
         runExternalCellEditWithRetries,
-        runLegacyInternalCellEdit,
       };
 
       const TRAIL_OPS = new Set([
         'init', 'ackExternalDrafts', 'persistSessionEntries',
         'janeTrailNew', 'janeTrailFork', 'janeTrailSwitch', 'janeTrailRename', 'janeTrailDelete',
+        'exportNotebook',
       ]);
       const AGENT_OPS = new Set([
-        'bootstrap', 'agentPrompt', 'janeSessionBootstrap', 'janeSessionRun',
         'editCellCode', 'abortAgent',
       ]);
       const FILE_OPS = new Set(['readConfig', 'writeConfig', 'exportJson']);

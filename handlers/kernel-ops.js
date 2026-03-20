@@ -13,6 +13,14 @@ async function handleKernelOp(msg, ctx) {
           configDir,
           trailId: msg.trailId || activeSession.trailId || '',
         };
+        const onStream = (text) => {
+          panel.webview.postMessage({
+            type: 'cellOutputStream',
+            requestId: msg.requestId || '',
+            cellId: msg.cellId || '',
+            text,
+          });
+        };
         const result = await executeNotebookCell({
           language: request.language,
           code: msg.code,
@@ -21,6 +29,7 @@ async function handleKernelOp(msg, ctx) {
           execFileAsync,
           panel,
           trailId: request.trailId,
+          onStream,
         });
         panel.webview.postMessage({
           type: 'executeCellResult',

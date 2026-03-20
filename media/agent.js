@@ -88,6 +88,12 @@ function executeOps(ops) {
 
     const result = fn(input);
     results.push(result);
+
+    // Mark affected config as dirty
+    const affFile = input.file || '';
+    if (affFile && state.configs[affFile]) {
+      state.configs[affFile].dirty = true;
+    }
   }
   return { results, diffs, affectedFiles };
 }
@@ -97,6 +103,7 @@ let _agentRunning = false;
 let _timerInterval = null;
 let _timerStart = 0;
 let _pythonCellCounter = 0;
+let _selectedCell = null;
 
 function startTimer() {
   if (_timerInterval) clearInterval(_timerInterval);
@@ -321,7 +328,13 @@ function _makeCollapsible(cell, toggleEl) {
 }
 
 function _makeDeletable(cell, closeEl) {
-  closeEl.addEventListener('click', () => {
+  if (!closeEl) return;
+  closeEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (cell._cmEditor) {
+      try { cell._cmEditor.toTextArea(); } catch {}
+      cell._cmEditor = null;
+    }
     cell.remove();
     flushNotebookSessionPersist();
   });
@@ -492,12 +505,21 @@ function buildNotebookCellModels(answerText, executedCells, diffs) {
   return normalizeNotebookCellsForRender(mergeAdjacentMarkdownCells(cells));
 }
 
+function serializeCellProvenance(cell) {
+  const prov = { author: cell.dataset.author || 'jane' };
+  if (cell.dataset.editedBy) prov.editedBy = cell.dataset.editedBy;
+  if (cell.dataset.createdAt) prov.createdAt = cell.dataset.createdAt;
+  if (cell.dataset.editedAt) prov.editedAt = cell.dataset.editedAt;
+  return prov;
+}
+
 function serializeNotebookCell(cell) {
   const cellId = cell.dataset.cellId || createNotebookEntityId('cell');
   const type = cell.dataset.cellType || '';
+  const prov = serializeCellProvenance(cell);
   if (type === 'markdown') {
     const editor = cell.querySelector('.nb-md-editor');
-    return { id: cellId, type: 'markdown', content: editor ? editor.value : '' };
+    return { id: cellId, type: 'markdown', content: editor ? editor.value : '', ...prov };
   }
   if (type === 'python') {
     const codeArea = cell._cmEditor || cell.querySelector('.py-cell-input');
@@ -508,16 +530,17 @@ function serializeNotebookCell(cell) {
       code: codeArea ? (typeof codeArea.getValue === 'function' ? codeArea.getValue() : codeArea.value) : '',
       output: output ? (output.dataset.rawResult || '') : '',
       runState: normalizeNotebookPythonRunState(cell.dataset.runState, output ? (output.dataset.rawResult || '') : ''),
+      ...prov,
     };
   }
   if (type === 'image') {
-    return { id: cellId, type: 'image', data: cell.dataset.imageData || '' };
+    return { id: cellId, type: 'image', data: cell.dataset.imageData || '', ...prov };
   }
   if (type === 'diff') {
     try {
-      return { id: cellId, type: 'diff', diffs: JSON.parse(cell.dataset.diffs || '[]') };
+      return { id: cellId, type: 'diff', diffs: JSON.parse(cell.dataset.diffs || '[]'), ...prov };
     } catch {
-      return { id: cellId, type: 'diff', diffs: [] };
+      return { id: cellId, type: 'diff', diffs: [], ...prov };
     }
   }
   return {
@@ -525,6 +548,7 @@ function serializeNotebookCell(cell) {
     type,
     lang: cell.dataset.lang || '',
     content: cell.dataset.content || '',
+    ...prov,
   };
 }
 
@@ -551,6 +575,10 @@ function serializeNotebookEntry(entryEl) {
 }
 
 function persistNotebookSessionEntries() {
+  // Skip persist while agent is running — the agent turn writes its own entry
+  // via updateJaneSession on the extension side. Persisting from the webview
+  // during an agent turn would race and overwrite the agent's new entry.
+  if (_agentRunning) return;
   const log = document.getElementById('agent-chat-log');
   if (!log) return;
   const entries = [...log.querySelectorAll(':scope > .nb-entry')].map(serializeNotebookEntry);
@@ -571,7 +599,7 @@ function scheduleNotebookSessionPersist() {
   _persistNotebookTimer = setTimeout(() => {
     _persistNotebookTimer = null;
     persistNotebookSessionEntries();
-  }, 250);
+  }, 1500);
 }
 
 function bindNotebookPersistenceLifecycle() {
@@ -641,6 +669,10 @@ function buildCell(block) {
   cell.className = 'nb-cell nb-' + kind;
   cell.dataset.cellType = kind;
   cell.dataset.cellId = block.id || createNotebookEntityId('cell');
+  if (block.author) cell.dataset.author = block.author;
+  if (block.editedBy) cell.dataset.editedBy = block.editedBy;
+  if (block.createdAt) cell.dataset.createdAt = block.createdAt;
+  if (block.editedAt) cell.dataset.editedAt = block.editedAt;
 
   if (kind === 'markdown') {
     const startEditing = !!block.startEditing;
@@ -701,6 +733,8 @@ function buildCell(block) {
     // Auto-resize editor
     editor.addEventListener('input', () => {
       editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+      cell.dataset.editedBy = 'human';
+      cell.dataset.editedAt = new Date().toISOString();
       scheduleNotebookSessionPersist();
     });
     editor.addEventListener('blur', () => flushNotebookSessionPersist());
@@ -749,8 +783,11 @@ function buildCell(block) {
 
     // Click to select cell
     cell.addEventListener('click', () => {
-      document.querySelectorAll('.nb-cell-selected').forEach(c => c.classList.remove('nb-cell-selected'));
+      if (_selectedCell && _selectedCell !== cell) {
+        _selectedCell.classList.remove('nb-cell-selected');
+      }
       cell.classList.add('nb-cell-selected');
+      _selectedCell = cell;
     });
     const runBtn = toolbar.querySelector('.nb-run');
     const copyBtn = toolbar.querySelector('.nb-copy');
@@ -814,6 +851,8 @@ function buildCell(block) {
             return;
           }
           if (msg.code) {
+            targetCell.dataset.editedBy = 'jane';
+            targetCell.dataset.editedAt = new Date().toISOString();
             if (targetCell._cmEditor) {
               targetCell._cmEditor.setValue(msg.code);
               targetCell._cmEditor.focus();
@@ -851,6 +890,9 @@ function buildCell(block) {
           }
         };
         window.addEventListener('message', handler);
+        setTimeout(() => {
+          window.removeEventListener('message', handler);
+        }, 180000);
         promptInput.disabled = true;
         promptInput.placeholder = 'thinking...';
         // Send to agent: modify this specific code
@@ -885,6 +927,12 @@ function buildCell(block) {
     const codeEditor = buildCodeMirrorEditor(codeEditorHost, block.code || '', runCurrentCode);
     if (codeEditor) {
       cell._cmEditor = codeEditor;
+      codeEditor.on('change', (_cm, change) => {
+        if (change.origin && change.origin !== 'setValue') {
+          cell.dataset.editedBy = 'human';
+          cell.dataset.editedAt = new Date().toISOString();
+        }
+      });
     } else {
       const codeArea = document.createElement('textarea');
       codeArea.className = 'py-cell-input';
@@ -892,6 +940,8 @@ function buildCell(block) {
       codeArea.spellcheck = false;
       codeWrap.appendChild(codeArea);
       codeArea.addEventListener('input', () => {
+        cell.dataset.editedBy = 'human';
+        cell.dataset.editedAt = new Date().toISOString();
         scheduleNotebookSessionPersist();
       });
       codeArea.addEventListener('blur', () => flushNotebookSessionPersist());
@@ -974,13 +1024,45 @@ function buildCell(block) {
     runBtn.addEventListener('click', function() {
       const requestId = nextCellRequestId('run');
       const cellId = cell.dataset.cellId || '';
+
+      // Stream handler: incrementally appends text nodes (avoids O(n²) re-render)
+      const streamHandler = (event) => {
+        const msg = event.data;
+        if (msg.type !== 'cellOutputStream') return;
+        if (msg.requestId !== requestId) return;
+        const targetCell = findNotebookCellById(cellId, cell) || cell;
+        const targetOutput = targetCell.querySelector('.nb-output') || output;
+        // Remove the "Running..." pending span on first chunk
+        const pendingSpan = targetOutput.querySelector('.nb-output-pending');
+        if (pendingSpan) {
+          pendingSpan.remove();
+          // Create a pre element for streaming text
+          const pre = document.createElement('pre');
+          pre.className = 'nb-output-text nb-stream-pre';
+          targetOutput.appendChild(pre);
+        }
+        // Append text incrementally
+        const pre = targetOutput.querySelector('.nb-stream-pre');
+        if (pre) {
+          pre.appendChild(document.createTextNode(msg.text || ''));
+        }
+        // Track raw buffer for final state
+        if (!targetOutput._streamBuffer) targetOutput._streamBuffer = '';
+        targetOutput._streamBuffer += (msg.text || '');
+        targetOutput.scrollTop = targetOutput.scrollHeight;
+      };
+      window.addEventListener('message', streamHandler);
+
       const handler = (event) => {
         const msg = event.data;
         if (msg.type !== 'executeCellResult') return;
         if (msg.requestId !== requestId) return;
         window.removeEventListener('message', handler);
+        window.removeEventListener('message', streamHandler);
+        clearTimeout(handlerTimeout);
         const targetCell = findNotebookCellById(cellId, cell) || cell;
         const targetOutput = targetCell.querySelector('.nb-output') || output;
+        delete targetOutput._streamBuffer;
         this.disabled = false;
         this.innerHTML = playSvg;
         this.classList.remove('py-running');
@@ -1000,6 +1082,11 @@ function buildCell(block) {
         flushNotebookSessionPersist();
       };
       window.addEventListener('message', handler);
+      const handlerTimeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        window.removeEventListener('message', streamHandler);
+        delete output._streamBuffer;
+      }, 300000);
       this.disabled = true;
       this.innerHTML = stopSvg;
       this.classList.add('py-running');
@@ -1201,6 +1288,8 @@ function focusNotebookCell(cell) {
 function insertNotebookCellRelative(targetCell, kind, position = 'after') {
   if (!targetCell || !targetCell.parentNode) return null;
   const cell = buildCell(createManualNotebookCellModel(kind));
+  cell.dataset.author = 'human';
+  cell.dataset.createdAt = new Date().toISOString();
   if (position === 'before') {
     targetCell.parentNode.insertBefore(cell, targetCell);
   } else {
@@ -1216,6 +1305,8 @@ function addManualNotebookCell(kind) {
   if (!cellsDiv) return;
 
   const cell = buildCell(createManualNotebookCellModel(kind));
+  cell.dataset.author = 'human';
+  cell.dataset.createdAt = new Date().toISOString();
   cellsDiv.appendChild(cell);
 
   const panels = document.getElementById('dashboard-panels');
@@ -1329,7 +1420,16 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
   });
   promptCell.querySelector('.nb-entry-toggle').addEventListener('click', function() {
     entry.classList.toggle('nb-collapsed');
-    this.innerHTML = entry.classList.contains('nb-collapsed') ? ICON_EXPAND : ICON_COLLAPSE;
+    const collapsed = entry.classList.contains('nb-collapsed');
+    this.innerHTML = collapsed ? ICON_EXPAND : ICON_COLLAPSE;
+    // Refresh CodeMirror editors after expanding (they render as 0-height when hidden)
+    if (!collapsed) {
+      requestAnimationFrame(() => {
+        entry.querySelectorAll('.nb-cell').forEach((cell) => {
+          if (cell._cmEditor) cell._cmEditor.refresh();
+        });
+      });
+    }
   });
 
   // Answer cells container
@@ -1351,6 +1451,7 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
 
   if (isError) {
     renderNotebookCells(cellsDiv, cellModels);
+    requestAnimationFrame(() => { const p = document.getElementById('dashboard-panels'); if (p) p.scrollTop = p.scrollHeight; });
     if (!options.skipPersist) scheduleNotebookSessionPersist();
     return;
   }
@@ -1362,6 +1463,7 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
 
   if (options.instant || hasRichContent || !text) {
     renderNotebookCells(cellsDiv, cellModels);
+    requestAnimationFrame(() => { const p = document.getElementById('dashboard-panels'); if (p) p.scrollTop = p.scrollHeight; });
     if (!options.skipPersist) scheduleNotebookSessionPersist();
     return;
   }
@@ -1386,6 +1488,7 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
       _typingTimer = null;
       tempDiv.remove();
       renderNotebookCells(cellsDiv, cellModels);
+      requestAnimationFrame(() => { const p = document.getElementById('dashboard-panels'); if (p) p.scrollTop = p.scrollHeight; });
       if (!options.skipPersist) scheduleNotebookSessionPersist();
     }
   }, speed);

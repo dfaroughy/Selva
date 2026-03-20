@@ -5,6 +5,7 @@ const {
   setPanelState,
 } = require('../lib/session-store');
 const { loadAllTools } = require('../lib/selva-runtime');
+const { exportToIpynb, exportToPython } = require('../lib/notebook-export');
 
 async function handleTrailOp(msg, ctx) {
   const {
@@ -30,7 +31,7 @@ async function handleTrailOp(msg, ctx) {
       const pinnedKey = 'pinnedFields:' + configDir;
       const pinnedFields = context.workspaceState.get(pinnedKey, {});
       const defaultPromptTemplate = fs.readFileSync(
-        path.join(context.extensionPath, 'ecosystem', 'prompts', 'system.md'), 'utf8'
+        path.join(context.extensionPath, 'ecosystem', 'prompts', 'SYSTEM.md'), 'utf8'
       );
       const maskedKeys = {
         anthropic: apiKeys.anthropic ? '••••' + apiKeys.anthropic.slice(-4) : '',
@@ -52,7 +53,8 @@ async function handleTrailOp(msg, ctx) {
         pinnedFields,
         defaultPromptTemplate,
         apiKeys: maskedKeys,
-        additionalInstructions: janeSession.additionalInstructions,
+        additionalInstructions: janeSession.additionalInstructions || '',
+        bitacora: janeSession.bitacora || '',
         session: janeSession,
         trails: trailState.trails,
         activeTrail: trailState.activeTrail,
@@ -150,6 +152,53 @@ async function handleTrailOp(msg, ctx) {
         });
       } catch (err) {
         panel.webview.postMessage({ type: 'error', message: err.message });
+      }
+      break;
+    }
+    case 'exportNotebook': {
+      const vscodeApi = ctx.vscode;
+      const format = msg.format || 'ipynb';
+      const session = janeRuntime.getSession();
+      const entries = Array.isArray(session.entries) ? session.entries : [];
+      const allCells = [];
+      for (const entry of entries) {
+        if (Array.isArray(entry.cells)) {
+          for (const cell of entry.cells) {
+            if (cell) allCells.push(cell);
+          }
+        }
+      }
+      const trailState = janeRuntime.listTrails();
+      const trailName = (trailState.activeTrail && trailState.activeTrail.name) || 'notebook';
+      const safeName = String(trailName).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      let content, filename;
+      if (format === 'py') {
+        content = exportToPython(allCells);
+        filename = safeName + '.py';
+      } else {
+        const nb = exportToIpynb(allCells, {
+          selva: { trail: trailName },
+        });
+        content = JSON.stringify(nb, null, 1);
+        filename = safeName + '.ipynb';
+      }
+      try {
+        const defaultUri = vscodeApi.Uri.file(path.join(configDir, filename));
+        const filters = format === 'py'
+          ? { 'Python': ['py'] }
+          : { 'Jupyter Notebook': ['ipynb'] };
+        const uri = await vscodeApi.window.showSaveDialog({
+          defaultUri,
+          filters,
+          title: 'Export Notebook',
+        });
+        if (uri) {
+          fs.writeFileSync(uri.fsPath, content, 'utf8');
+          panel.webview.postMessage({ type: 'exportNotebookResult', ok: true, filename: path.basename(uri.fsPath) });
+          vscodeApi.window.showInformationMessage(`Exported to ${path.basename(uri.fsPath)}`);
+        }
+      } catch (err) {
+        panel.webview.postMessage({ type: 'exportNotebookResult', ok: false, error: err.message });
       }
       break;
     }

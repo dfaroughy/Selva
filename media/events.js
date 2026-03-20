@@ -8,6 +8,7 @@ function onInput(fid, rawValue) {
     else { const n = Number(rawValue); value = isNaN(n) ? rawValue : n; }
   } else { value = rawValue; }
   setNestedValue(state.configs[file].current, path, value);
+  state.configs[file].dirty = true;
   if (isNum) syncSlider(fid, typeof value === 'number' ? value : NaN);
   refreshFieldState(fid);
   updateButtons();
@@ -17,6 +18,7 @@ function onInput(fid, rawValue) {
 function onToggle(fid, checked) {
   const { path, file } = state.fieldMap[fid];
   setNestedValue(state.configs[file].current, path, checked);
+  state.configs[file].dirty = true;
   refreshFieldState(fid);
   updateButtons();
   renderTabs();
@@ -25,6 +27,7 @@ function onToggle(fid, checked) {
 function convertNull(fid) {
   const { path, file } = state.fieldMap[fid];
   setNestedValue(state.configs[file].current, path, '');
+  state.configs[file].dirty = true;
   state.fieldMap[fid].type = 'str';
   renderEditor();
   updateButtons();
@@ -35,6 +38,7 @@ function onArrayItemInput(fid, index, value) {
   const { path, file } = state.fieldMap[fid];
   const arr = getNestedValue(state.configs[file].current, path);
   arr[index] = value;
+  state.configs[file].dirty = true;
   refreshFieldState(fid);
   updateButtons();
   renderTabs();
@@ -43,12 +47,14 @@ function onArrayItemInput(fid, index, value) {
 function removeArrayItem(fid, index) {
   const { path, file } = state.fieldMap[fid];
   getNestedValue(state.configs[file].current, path).splice(index, 1);
+  state.configs[file].dirty = true;
   renderEditor(); updateButtons(); renderTabs();
 }
 
 function addArrayItem(fid) {
   const { path, file } = state.fieldMap[fid];
   getNestedValue(state.configs[file].current, path).push('');
+  state.configs[file].dirty = true;
   renderEditor(); updateButtons(); renderTabs();
 }
 
@@ -56,6 +62,8 @@ function resetField(fid) {
   const { path, file } = state.fieldMap[fid];
   const origValue = getNestedValue(state.configs[file].original, path);
   setNestedValue(state.configs[file].current, path, deepClone(origValue));
+  // Recompute dirty flag — could still be dirty from other field changes
+  state.configs[file].dirty = JSON.stringify(state.configs[file].original) !== JSON.stringify(state.configs[file].current);
   renderEditor(); updateButtons(); renderTabs();
 }
 
@@ -117,6 +125,7 @@ function resetFile() {
   const config = state.configs[state.activeFile];
   if (!config) return;
   config.current = deepClone(config.original);
+  config.dirty = false;
   renderEditor(); renderTabs(); updateButtons();
   toast('Reset ' + state.activeFile, 'success');
 }
@@ -155,7 +164,26 @@ function applySessionSnapshot(session) {
   vscode.setState({ ...prev, pinned: state.pinned });
 }
 
-function rebuildChatLogFromSession() {
+function rebuildChatLogFromSession(options = {}) {
+  // Flush pending DOM edits before rebuilding — but only when the rebuild
+  // is user-initiated (trail switch, manual refresh). When the rebuild is
+  // triggered by janeSessionSync (external MCP write), the disk state is
+  // authoritative and a flush would overwrite it with stale DOM content.
+  if (!options.external) {
+    if (_persistNotebookTimer) {
+      clearTimeout(_persistNotebookTimer);
+      _persistNotebookTimer = null;
+    }
+    const wasRunning = _agentRunning;
+    _agentRunning = false;
+    persistNotebookSessionEntries();
+    _agentRunning = wasRunning;
+  } else if (_persistNotebookTimer) {
+    clearTimeout(_persistNotebookTimer);
+    _persistNotebookTimer = null;
+  }
+
+  _pythonCellCounter = 0;
   const log = document.getElementById('agent-chat-log');
   if (log) {
     log.innerHTML = '';
@@ -231,6 +259,7 @@ function resetLoadedConfigDrafts() {
   for (const config of Object.values(state.configs)) {
     if (!config) continue;
     config.current = deepClone(config.original);
+    config.dirty = false;
   }
 }
 
@@ -265,7 +294,8 @@ function hydrateTrailSession(session, options = {}) {
   state._agentPending = null;
   applySessionSnapshot(session || {});
   queueExternalDrafts((session || {}).pendingExternalDrafts || []);
-  rebuildChatLogFromSession();
+  // Disk state is authoritative on hydration — don't flush the (possibly empty) DOM
+  rebuildChatLogFromSession({ external: true });
 
   if (state.files.length === 0) {
     renderDashboardFromSession();
@@ -381,6 +411,13 @@ function handleBootstrapResultMessage(msg) {
 }
 
 function handleAgentResultMessage(msg) {
+  // Clear any pending persist timer from user edits during the agent turn —
+  // the agent already persisted its entry on the extension side, and we're
+  // about to add it to the DOM and persist the full state afterwards.
+  if (_persistNotebookTimer) {
+    clearTimeout(_persistNotebookTimer);
+    _persistNotebookTimer = null;
+  }
   setAgentBusy(false);
   const question = state._lastQuestion || '\u2026';
   console.log('[Selva] agentResult:', { answer: (msg.answer || '').slice(0, 200), opsCount: (msg.ops || []).length, summary: msg.summary });
@@ -482,12 +519,12 @@ window.addEventListener('message', event => {
         if (msg.apiKeys.anthropic) document.getElementById('set-anthropic-key').placeholder = msg.apiKeys.anthropic;
         if (msg.apiKeys.openai) document.getElementById('set-openai-key').placeholder = msg.apiKeys.openai;
       }
-      // Restore additional instructions
-      if (msg.additionalInstructions) {
-        const editor = document.getElementById('sysprompt-editor');
-        if (editor) editor.value = msg.additionalInstructions;
-        updateSyspromptSparks();
-      }
+      // Restore trail instructions and bitácora
+      const instrEditor = document.getElementById('sysprompt-editor');
+      if (instrEditor) instrEditor.value = msg.additionalInstructions || '';
+      const bitacoraDisplay = document.getElementById('bitacora-display');
+      if (bitacoraDisplay) bitacoraDisplay.textContent = msg.bitacora || '(No bitácora yet — will be generated during bootstrap)';
+      updateSyspromptSparks();
       const session = msg.session || {};
       applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
       state.availableCodingAgents = Array.isArray(msg.codingAgents) ? msg.codingAgents.slice() : [];
@@ -511,6 +548,7 @@ window.addEventListener('message', event => {
         original: deepClone(msg.parsed),
         current: deepClone(msg.parsed),
         raw: msg.raw || '',
+        dirty: false,
       };
       if (state.fileTypes[msg.filename] === 'data') {
         lockAllFieldsInFile(msg.filename);
@@ -562,7 +600,7 @@ window.addEventListener('message', event => {
       const saveBtn = document.getElementById('save-btn');
       if (msg.success) {
         const config = state.configs[msg.filename];
-        if (config) config.original = deepClone(config.current);
+        if (config) { config.original = deepClone(config.current); config.dirty = false; }
         renderEditor(); renderTabs();
         toast('Saved ' + msg.filename, 'success');
       } else {
@@ -644,14 +682,21 @@ window.addEventListener('message', event => {
       const nextTrailId = trailState.activeTrail && trailState.activeTrail.id ? trailState.activeTrail.id : '';
       const trailChanged = !!(nextTrailId && nextTrailId !== state.activeTrailId);
       applyTrailStatePayload(trailState.trails || [], trailState.activeTrail || null);
+      // Refresh bitácora display
+      const syncSession = msg.session || {};
+      const bd = document.getElementById('bitacora-display');
+      if (bd) bd.textContent = syncSession.bitacora || '(No bitácora yet)';
       if (trailChanged) {
-        hydrateTrailSession(msg.session || {}, { resetLoadedConfigs: true });
+        hydrateTrailSession(syncSession, { resetLoadedConfigs: true });
+        const ie = document.getElementById('sysprompt-editor');
+        if (ie) ie.value = syncSession.additionalInstructions || '';
+        updateSyspromptSparks();
         requestNotebookKernelStatus();
         break;
       }
-      applySessionSnapshot(msg.session || {});
-      queueExternalDrafts((msg.session || {}).pendingExternalDrafts || []);
-      rebuildChatLogFromSession();
+      applySessionSnapshot(syncSession);
+      queueExternalDrafts(syncSession.pendingExternalDrafts || []);
+      rebuildChatLogFromSession({ external: true });
       renderDashboardFromSession();
       applyPendingExternalDrafts();
       requestNotebookKernelStatus();
@@ -685,6 +730,14 @@ window.addEventListener('message', event => {
         toast('Kernel restarted', 'success');
       } else {
         toast(msg.message || 'Kernel updated', 'success');
+      }
+      break;
+    }
+    case 'exportNotebookResult': {
+      if (msg.ok) {
+        toast('Exported ' + (msg.filename || 'notebook'), 'success');
+      } else if (msg.error) {
+        toast('Export failed: ' + msg.error, 'error');
       }
       break;
     }
@@ -850,6 +903,7 @@ document.getElementById('pinned-bar').addEventListener('input', e => {
   }
 
   setNestedValue(state.configs[file].current, path, val);
+  state.configs[file].dirty = true;
   const mod = !valEqual(val, getNestedValue(state.configs[file].original, path));
   t.classList.toggle('pin-modified', mod);
   t.closest('.pin-row').classList.toggle('pin-modified', mod);
@@ -873,6 +927,7 @@ document.getElementById('pinned-bar').addEventListener('change', e => {
     const path = JSON.parse(t.dataset.pp);
     if (!state.configs[file]) return;
     setNestedValue(state.configs[file].current, path, t.checked);
+    state.configs[file].dirty = true;
     if (file === state.activeConfigFile || file === state.activeDataFile) {
       const fid = state.pathToFid[file + ':' + pathKey(path)];
       if (fid) refreshFieldState(fid);
@@ -974,7 +1029,11 @@ document.getElementById('set-openai-key').addEventListener('change', e => {
 document.getElementById('save-defaults-btn').addEventListener('click', saveAsUserDefault);
 document.getElementById('reset-defaults-btn').addEventListener('click', resetToFactoryDefault);
 
-document.getElementById('search').addEventListener('input', applySearch);
+let _searchTimer = null;
+document.getElementById('search').addEventListener('input', () => {
+  if (_searchTimer) clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(applySearch, 150);
+});
 
 // ── Agent CLI bar listeners ─────────────────────────────────
 const agentRunBtn = document.getElementById('agent-run-btn');
@@ -1116,6 +1175,19 @@ if (notebookAddBtn && notebookAddMenu) {
   document.addEventListener('click', (e) => {
     const wrap = e.target.closest('.notebook-add-wrap');
     if (!wrap) notebookAddMenu.classList.add('hidden');
+  });
+}
+
+const exportIpynbBtn = document.getElementById('export-ipynb-btn');
+if (exportIpynbBtn) {
+  exportIpynbBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'exportNotebook', format: 'ipynb' });
+  });
+}
+const exportPyBtn = document.getElementById('export-py-btn');
+if (exportPyBtn) {
+  exportPyBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'exportNotebook', format: 'py' });
   });
 }
 

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const path = require('path');
 
 const {
   CELL_EDIT_RESULT_SCHEMA,
@@ -65,9 +66,9 @@ test('picks a fast cell debugger model for supported agents', () => {
   assert.strictEqual(pickCellDebuggerModel('codex'), 'gpt-5.4-mini');
 });
 
-test('builds a Selva connect prompt that points fresh agents at jane_init', () => {
+test('builds a Selva connect prompt with Jane identity and MCP protocol', () => {
   const prompt = buildCodingAgentConnectPrompt({
-    agent: { label: 'Codex' },
+    agent: { label: 'Claude Code' },
     initPayload: {
       configDir: '/tmp/workspace',
       sessionId: 'abc123',
@@ -77,22 +78,28 @@ test('builds a Selva connect prompt that points fresh agents at jane_init', () =
       fileCount: 10,
       configFileCount: 7,
       dataFileCount: 3,
-      activeConfigFile: 'cards/trainer.yaml',
-      activeDataFile: 'data/figure.yaml',
-      pendingDraftCount: 2,
+      trailName: 'Test Trail',
+      trailCount: 2,
     },
+    extensionPath: path.join(__dirname, '..'),
+    bitacora: 'ML project studying convergence.',
   });
 
+  // Identity from SYSTEM.md
+  assert.ok(prompt.includes('Agentic Research Collaborator'));
+  assert.ok(prompt.includes('COLLABORATION CHANNELS'));
+  assert.ok(prompt.includes('RESEARCH DISPOSITION'));
+  assert.ok(prompt.includes('TRAILS'));
+  // Tool rules from TOOLS.md
+  assert.ok(prompt.includes('TOOL RULES'));
+  // Bitácora injected
+  assert.ok(prompt.includes('ML project studying convergence'));
+  // MCP protocol
   assert.ok(prompt.includes('jane_init'));
-  assert.ok(prompt.includes('jane_get_instruction_pack'));
-  assert.ok(prompt.includes('jane_session_bootstrap'));
-  assert.ok(prompt.includes('jane_apply_ops'));
   assert.ok(prompt.includes('jane_add_cells'));
-  assert.ok(prompt.includes('jane_update_cell'));
-  assert.ok(prompt.includes('read_config'));
-  assert.ok(prompt.includes('set_value'));
+  assert.ok(prompt.includes('execute_python'));
   assert.ok(prompt.includes('/tmp/workspace'));
-  assert.ok(prompt.includes('cards/trainer.yaml'));
+  assert.ok(prompt.includes('needs bootstrap'));
 });
 
 test('builds a project Codex config that points at the Selva MCP server', () => {
