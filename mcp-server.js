@@ -54,7 +54,7 @@ function getApiKeys() {
 }
 
 function getPendingDraftValueOps() {
-  const session = janeRuntime.getSession();
+  const session = janeRuntime.getMcpSession();
   if (!hasOpenPanelSession(session)) return [];
   return (session.pendingExternalDrafts || [])
     .flatMap((draft) => draft.ops || [])
@@ -131,7 +131,7 @@ function stageSetValueDraft(args) {
 }
 
 async function callTool(toolName, toolArgs) {
-  const panelOpen = hasOpenPanelSession(janeRuntime.getSession());
+  const panelOpen = hasOpenPanelSession(janeRuntime.getMcpSession());
 
   if (janeRuntime.isSessionTool(toolName)) {
     // When the agent records a notebook entry, attach any buffered executed cells
@@ -159,6 +159,7 @@ async function callTool(toolName, toolArgs) {
       execFileAsync: undefined,
       persistConfigChanges: !panelOpen,
       stageDraftValueOps: panelOpen,
+      mcpOrigin: true,
     });
   }
 
