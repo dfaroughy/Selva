@@ -152,6 +152,7 @@ const defaultSettings = {
   labelFont: "'JetBrains Mono', monospace",
   fieldFont: "'Major Mono Display', monospace",
   valueFont: "'Courier New', Courier, monospace",
+  systemFont: "'Open Sans', -apple-system, sans-serif",
   fontSize: 12,
   bg0Color: '#000000',
   bg1Color: '#000000',
@@ -197,6 +198,7 @@ function applySettings() {
   root.setProperty('--font-label', settings.labelFont);
   root.setProperty('--font-field', settings.fieldFont);
   root.setProperty('--font-value', settings.valueFont);
+  root.setProperty('--font-system', settings.systemFont);
   root.setProperty('--font-size-base', settings.fontSize + 'px');
   root.setProperty('--color-label', settings.labelColor);
   root.setProperty('--color-field', settings.fieldColor);
@@ -331,6 +333,7 @@ function syncSettingsUI() {
   document.getElementById('set-label-font').value = settings.labelFont;
   document.getElementById('set-field-font').value = settings.fieldFont;
   document.getElementById('set-value-font').value = settings.valueFont;
+  document.getElementById('set-system-font').value = settings.systemFont;
   document.getElementById('set-font-size').value = settings.fontSize;
   document.getElementById('font-size-val').textContent = settings.fontSize;
   document.getElementById('set-bg0-color').value = settings.bg0Color;
@@ -354,6 +357,7 @@ function onSettingChange() {
   settings.labelFont = document.getElementById('set-label-font').value;
   settings.fieldFont = document.getElementById('set-field-font').value;
   settings.valueFont = document.getElementById('set-value-font').value;
+  settings.systemFont = document.getElementById('set-system-font').value;
   settings.fontSize = parseInt(document.getElementById('set-font-size').value);
   settings.bg0Color = document.getElementById('set-bg0-color').value;
   settings.bg1Color = document.getElementById('set-bg1-color').value;

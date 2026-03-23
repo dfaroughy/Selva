@@ -5,7 +5,13 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}} https://fonts.googleapis.com 'unsafe-inline'; font-src {{CSP_SOURCE}} https://fonts.gstatic.com; script-src 'nonce-{{NONCE}}' 'unsafe-eval'; img-src data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Selva</title>
-  <link rel="stylesheet" href="{{CSS_URI}}">
+  <link rel="stylesheet" href="{{CSS_BASE_URI}}">
+  <link rel="stylesheet" href="{{CSS_HEADER_URI}}">
+  <link rel="stylesheet" href="{{CSS_SETTINGS_URI}}">
+  <link rel="stylesheet" href="{{CSS_DASHBOARD_URI}}">
+  <link rel="stylesheet" href="{{CSS_PROJECT_URI}}">
+  <link rel="stylesheet" href="{{CSS_NOTEBOOK_URI}}">
+  <link rel="stylesheet" href="{{CSS_RICHBLOCKS_URI}}">
   <link rel="stylesheet" href="{{CODEMIRROR_CSS_URI}}">
   <link rel="stylesheet" href="{{KATEX_CSS_URI}}">
 </head>
@@ -22,7 +28,7 @@
             <path d="m1667 175 13 1 13 5 12 8 10 10 11 16 8 16 6 14 4 13 5 17 4 29v28l-4 36-7 30-4 13v7l19 40 15 31 11 25 6 18 1 5v18l-5 16-4 8-7 9-8 7-11 5-9 2h-18l-10-3-10-6-8-8-8-14-3-13v-14l3-21 7-28 8-25 9-27 3-12 3-6v-10l-4-10-10-21-10-19-10-20-13-23-15-26-10-15-13-18-11-13-12-13-4-4-3 10-6 17-7 24-7 28-7 34-4 16 9 15 10 13 5 1 15-5 9-1h32l16 4 14 5 9 6 7 9 5 13v10l-4 10-11 12-8 4-17 1h-8l-9-3-14-7-13-10-11-10-7-8-11-14-3-2-8 6-8 4-7 6-3 8-4 25-4 28-7 51-4 27-5 15-9 14-8 7-11 6-9 3-8-1-11-6-6-8-4-9-2-11v-11l2-15 8-24 8-16 7-13 24-36 9-11 11-13 8-10 5-10 4-15 3-23-1-10-9-16-10-17-9-19-5-14-5-22-1-7v-17l6-22 7-14 8-8 10-5 9-2 13 1 13 3 12 6 8 6 2-4 7-9 7-8 13-10 14-7 6-2z" fill="currentColor"/>
           </svg>
         </div>
-        <div id="session-agent-bar" class="hidden">
+        <div id="session-agent-bar">
           <div class="coding-agent-select-wrap">
             <span id="coding-agent-provider-logo" class="coding-agent-provider-logo" aria-hidden="true"></span>
             <select id="coding-agent-select" class="coding-agent-select" aria-label="Available coding agents"></select>
@@ -39,24 +45,6 @@
               <line x1="12.75" y1="4.85" x2="12.75" y2="11.15"></line>
             </svg>
           </button>
-          <button class="btn agent-icon-btn" id="trail-panel-btn" title="Trails" aria-label="Trails">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
-              <path d="M3 3.25h5.5a2.25 2.25 0 0 1 0 4.5H6.75"></path>
-              <path d="M6.75 7.75h2a2.5 2.5 0 0 1 0 5H3"></path>
-              <circle cx="3" cy="3.25" r="1.25" fill="currentColor" stroke="none"></circle>
-              <circle cx="3" cy="12.75" r="1.25" fill="currentColor" stroke="none"></circle>
-              <circle cx="10.75" cy="7.75" r="1.25" fill="currentColor" stroke="none"></circle>
-            </svg>
-          </button>
-          <button class="btn agent-icon-btn" id="agent-sysprompt-btn" title="Instructions &amp; Bitácora" style="position:relative;">
-            <span class="agent-icon-btn-art" aria-hidden="true">
-              <svg class="agent-icon-btn-base" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 3h10M2 7h10M2 11h7"/></svg>
-              <span class="agent-icon-btn-sparks">
-                <svg class="agent-icon-btn-spark agent-icon-btn-spark-large" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M4 0l.9 2.7L8 4l-3.1 1.3L4 8 3.1 5.3 0 4l3.1-1.3L4 0z"/></svg>
-                <svg class="agent-icon-btn-spark agent-icon-btn-spark-small" width="5" height="5" viewBox="0 0 8 8" fill="currentColor"><path d="M4 0l.9 2.7L8 4l-3.1 1.3L4 8 3.1 5.3 0 4l3.1-1.3L4 0z"/></svg>
-              </span>
-            </span>
-          </button>
         </div>
       </div>
       <div class="header-right">
@@ -70,44 +58,54 @@
         <button class="btn-icon" id="settings-btn" title="Settings">&#9881;</button>
       </div>
     </header>
-    <div id="agent-sysprompt-panel" class="hidden">
-      <div class="sysprompt-columns">
-        <div class="sysprompt-col">
-          <div class="sysprompt-header">
-            <span class="sysprompt-title">Trail Instructions</span>
-            <button class="btn sysprompt-reset-btn" id="sysprompt-reset" title="Clear">Clear</button>
-          </div>
-          <textarea id="sysprompt-editor" spellcheck="false" placeholder="Standing instructions for Jane. Persists across all turns in this Trail."></textarea>
-        </div>
-        <div class="sysprompt-col">
-          <div class="sysprompt-header">
-            <span class="sysprompt-title">Bitácora</span>
-            <span class="sysprompt-hint">Jane's research log (read-only)</span>
-          </div>
-          <div id="bitacora-display" class="bitacora-display"></div>
-        </div>
-      </div>
-    </div>
-    <div id="trail-panel" class="hidden">
-      <div class="trail-panel-header">
-        <span class="trail-panel-title">Trails</span>
-        <span class="trail-panel-status" id="trail-status">Trails are persisted notebook lineages for this workspace.</span>
-      </div>
-      <div class="trail-panel-grid">
-        <label class="trail-panel-label" for="trail-select">Open</label>
-        <select id="trail-select" class="trail-panel-select" aria-label="Available Trails"></select>
-        <label class="trail-panel-label" for="trail-name-input">Name</label>
-        <input id="trail-name-input" class="trail-panel-input" type="text" spellcheck="false" placeholder="Active Trail name">
-      </div>
-      <div class="trail-panel-actions">
-        <button class="btn trail-panel-action" id="trail-rename-btn">Rename</button>
-        <button class="btn trail-panel-action" id="trail-new-btn">New Trail</button>
-        <button class="btn trail-panel-action" id="trail-fork-btn">Fork Trail</button>
-      </div>
-    </div>
   </div>
   <!-- Three-panel dashboard layout -->
   <div id="dashboard-panels">
+    <!-- Project Panel -->
+    <div class="dash-panel" id="trails-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px; margin-right:4px;">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          project
+        </span>
+      </div>
+      <div class="dash-panel-body">
+        <div class="project-panel-body">
+          <canvas id="trail-graph" width="600" height="200"></canvas>
+          <div id="project-prompt-panel" class="project-prompt-panel hidden">
+            <div class="sysprompt-header">
+              <span class="sysprompt-title">Project Prompt</span>
+              <button class="btn sysprompt-reset-btn" id="project-prompt-reset" title="Clear">Clear</button>
+            </div>
+            <textarea id="project-prompt-editor" spellcheck="false" placeholder="Research project instructions shared across all trails."></textarea>
+          </div>
+        </div>
+        <div id="agent-sysprompt-panel" class="project-prompts">
+          <div class="sysprompt-columns">
+            <div class="sysprompt-col">
+              <div class="sysprompt-header">
+                <span class="sysprompt-title">Trail Instructions</span>
+                <button class="btn sysprompt-reset-btn" id="sysprompt-reset" title="Clear">Clear</button>
+              </div>
+              <textarea id="sysprompt-editor" spellcheck="false" placeholder="Standing instructions for Jane on this trail."></textarea>
+            </div>
+            <div class="sysprompt-col">
+              <div class="sysprompt-header">
+                <span class="sysprompt-title">Bitácora</span>
+                <span class="sysprompt-hint">read-only</span>
+              </div>
+              <div id="bitacora-display" class="bitacora-display"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Notebook Panel -->
     <div class="dash-panel" id="notebook-panel">
       <div class="dash-panel-header" data-action="toggle-panel">
         <span class="dash-panel-chevron">&#9662;</span>
@@ -154,18 +152,6 @@
         </div>
       </div>
     </div>
-    <!-- Pinned Panel -->
-    <div class="dash-panel collapsed" id="pinned-panel">
-      <div class="dash-panel-header" data-action="toggle-panel">
-        <span class="dash-panel-chevron">&#9662;</span>
-        <span class="dash-panel-title" id="pinned-panel-title">pinned</span>
-        <button class="pin-clear-btn" id="pin-clear-all" title="Remove all">&#215;</button>
-      </div>
-      <div class="dash-panel-body" id="pinned-body">
-        <div id="pinned-bar"></div>
-      </div>
-    </div>
-
     <!-- Config Panel -->
     <div class="dash-panel collapsed" id="config-panel">
       <div class="dash-panel-header" data-action="toggle-panel">
@@ -192,6 +178,17 @@
       </div>
       <div class="dash-panel-body" id="data-body">
         <main id="data-editor"></main>
+      </div>
+    </div>
+    <!-- Pinned Panel -->
+    <div class="dash-panel collapsed" id="pinned-panel">
+      <div class="dash-panel-header" data-action="toggle-panel">
+        <span class="dash-panel-chevron">&#9662;</span>
+        <span class="dash-panel-title" id="pinned-panel-title">pinned</span>
+        <button class="pin-clear-btn" id="pin-clear-all" title="Remove all">&#215;</button>
+      </div>
+      <div class="dash-panel-body" id="pinned-body">
+        <div id="pinned-bar"></div>
       </div>
     </div>
   </div>
@@ -256,6 +253,23 @@
           <option value="'Silkscreen', monospace">Silkscreen</option>
           <option value="'Orbitron', sans-serif">Orbitron</option>
           <option value="'Courier New', Courier, monospace">Courier New</option>
+        </select>
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">System</span>
+        <select class="sp-select" id="set-system-font">
+          <option value="'Open Sans', -apple-system, sans-serif">Open Sans</option>
+          <option value="'Inter', -apple-system, sans-serif">Inter</option>
+          <option value="'Fira Sans', -apple-system, sans-serif">Fira Sans</option>
+          <option value="'IBM Plex Sans', -apple-system, sans-serif">IBM Plex Sans</option>
+          <option value="'Roboto', -apple-system, sans-serif">Roboto</option>
+          <option value="'Instrument Sans', -apple-system, sans-serif">Instrument Sans</option>
+          <option value="'Rethink Sans', -apple-system, sans-serif">Rethink Sans</option>
+          <option value="-apple-system, BlinkMacSystemFont, sans-serif">System Default</option>
+          <option value="'Space Mono', monospace">Space Mono</option>
+          <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+          <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+          <option value="'Fira Code', monospace">Fira Code</option>
         </select>
       </div>
       <div class="sp-row">

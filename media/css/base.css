@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&family=Silkscreen:wght@400;700&family=Orbitron:wght@400;500;600;700&family=Share+Tech+Mono&family=Major+Mono+Display&family=Space+Mono:wght@400;700&family=Fira+Code:wght@300..700&family=JetBrains+Mono:wght@300..800&family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=Roboto:wght@300;400;500;700&family=Instrument+Sans:wght@400;500;600;700&family=Rethink+Sans:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&family=Open+Sans:wght@300;400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* ── Customizable via settings ── */
+  --font-label: 'Major Mono Display', monospace;
+  --font-field: 'Major Mono Display', monospace;
+  --font-value: 'IBM Plex Mono', monospace;
+  --font-badge: 'IBM Plex Mono', monospace;
+  --font-system: 'Open Sans', -apple-system, sans-serif;
+  --font-size-base: 13px;
+  --color-label: #c9d1d9;
+  --color-field: #8b949e;
+
+  /* ── Badge colors (theme-specific) ── */
+  --badge-str-bg: #1a3a2a;   --badge-str-fg: #3fb950;
+  --badge-float-bg: #1a2a3a; --badge-float-fg: #58a6ff;
+  --badge-int-bg: #101e30;   --badge-int-fg: #89cff0;
+  --badge-bool-bg: #2a1a3a;  --badge-bool-fg: #bc8cff;
+  --badge-null-bg: #2a2a1a;  --badge-null-fg: #d29922;
+  --badge-list-bg: #2a1a2a;  --badge-list-fg: #f778ba;
+
+  /* ── Theme colors ── */
+  --bg-0: #0d1117;
+  --bg-1: #161b22;
+  --bg-2: #21262d;
+  --bg-3: #30363d;
+  --border: #30363d;
+  --text-0: #e6edf3;
+  --text-1: #c9d1d9;
+  --text-2: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --modified: #f0883e;
+  --success: #3fb950;
+  --danger: #f85149;
+  --radius: 6px;
+  --transition: 150ms ease;
+
+  /* ── Density ── */
+  --field-pad-y: 7px;
+  --field-gap: 12px;
+  --section-gap: 4px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg-0);
+  color: var(--text-1);
+  line-height: 1.5;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+

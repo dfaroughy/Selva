@@ -60,11 +60,17 @@ function cleanup(configDir) {
   fs.rmSync(configDir, { recursive: true, force: true });
 }
 
+// Helper: create a trail on a fresh workspace (since no auto-creation)
+function ensureTestTrail(configDir, name) {
+  return createJaneTrail(configDir, { name: name || '' });
+}
+
 console.log('\n\x1b[1mSession Store\x1b[0m');
 
 test('session store persists model and additional instructions', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir);
     updateJaneSession(configDir, (session) => {
       session.agentModelId = 'direct:gpt-4o';
       session.additionalInstructions = 'Be precise.';
@@ -82,6 +88,7 @@ test('session store persists model and additional instructions', () => {
 test('session store persists workspace trails as .svnb files and can switch between them', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir, 'First Trail');
     updateJaneSession(configDir, (session) => {
       session.agentModelId = 'direct:gpt-4o';
       session.additionalInstructions = 'Keep answers compact.';
@@ -92,16 +99,13 @@ test('session store persists workspace trails as .svnb files and can switch betw
     const initialTrail = getActiveTrail(configDir);
     assert.ok(initialTrail);
     assert.ok(initialTrail.path.endsWith('.svnb'));
-    assert.ok(initialTrail.name);
-    assert.ok(!/^Trail \d+$/.test(initialTrail.name));
-    assert.match(initialTrail.id, /^[A-Za-z0-9_]+_[a-f0-9]{32}$/);
-    assert.ok(initialTrail.file === `${initialTrail.id}.svnb`);
+    assert.strictEqual(initialTrail.name, 'First Trail');
+    assert.match(initialTrail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
     assert.strictEqual(listJaneTrails(configDir).length, 1);
 
     const created = createJaneTrail(configDir, { name: 'Clean Slate' });
     assert.strictEqual(created.trail.name, 'Clean Slate');
-    assert.match(created.trail.id, /^Clean_Slate_[a-f0-9]{32}$/);
-    assert.strictEqual(created.trail.file, `${created.trail.id}.svnb`);
+    assert.match(created.trail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
     assert.strictEqual(created.session.entries.length, 0);
     assert.strictEqual(created.session.bootstrap.done, false);
     assert.strictEqual(created.session.agentModelId, 'direct:gpt-4o');
@@ -118,67 +122,27 @@ test('session store persists workspace trails as .svnb files and can switch betw
   }
 });
 
-test('default Trail ids are derived from the jungle bigram name', () => {
+test('default Trail ids use bigram_hex format independent of trail name', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir);
     const trail = getActiveTrail(configDir);
     assert.ok(trail);
     assert.match(trail.name, /^[A-Za-z]+ [A-Za-z]+(?: \d+)?$/);
-    const expectedPrefix = trail.name.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_]/g, '_').replace(/_+/g, '_');
-    assert.ok(trail.id.startsWith(`${expectedPrefix}_`));
-    assert.strictEqual(trail.file, `${trail.id}.svnb`);
+    // ID is Bigram_Bigram_hex (independent of trail name)
+    assert.match(trail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
   } finally {
     cleanup(configDir);
   }
 });
 
-test('session store imports a legacy session only for a workspace with no Trail history yet', () => {
+test('empty project returns empty session with no trails on disk', () => {
   const configDir = mkTmpDir();
-  const legacyPath = legacySessionPathForConfigDir(configDir);
   try {
-    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
-    fs.writeFileSync(
-      legacyPath,
-      JSON.stringify({
-        version: 1,
-        configDir,
-        entries: [{ question: 'legacy question', answer: 'legacy answer' }],
-        updatedAt: new Date().toISOString(),
-      }, null, 2),
-      'utf8'
-    );
-
-    const session = loadJaneSession(configDir);
-    assert.strictEqual(session.entries.length, 1);
-    assert.strictEqual(session.entries[0].question, 'legacy question');
-  } finally {
-    cleanup(configDir);
-  }
-});
-
-test('session store does not re-import a legacy session after the workspace has already initialized Trails', () => {
-  const configDir = mkTmpDir();
-  const legacyPath = legacySessionPathForConfigDir(configDir);
-  try {
-    updateJaneSession(configDir, (session) => session);
-
-    const trailsDir = path.join(configDir, '.selva', 'trails');
-    fs.rmSync(trailsDir, { recursive: true, force: true });
-
-    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
-    fs.writeFileSync(
-      legacyPath,
-      JSON.stringify({
-        version: 1,
-        configDir,
-        entries: [{ question: 'should not resurrect', answer: 'old content' }],
-        updatedAt: new Date().toISOString(),
-      }, null, 2),
-      'utf8'
-    );
-
     const session = loadJaneSession(configDir);
     assert.strictEqual(session.entries.length, 0);
+    assert.strictEqual(listJaneTrails(configDir).length, 0);
+    assert.strictEqual(getActiveTrail(configDir), null);
   } finally {
     cleanup(configDir);
   }
@@ -187,9 +151,9 @@ test('session store does not re-import a legacy session after the workspace has 
 test('session store can auto-name and rename Trails without collisions', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir);
     const initial = getActiveTrail(configDir);
     assert.ok(initial.name);
-    assert.ok(!/^Trail \d+$/.test(initial.name));
 
     const created = createJaneTrail(configDir, {});
     assert.ok(created.trail.name);
@@ -258,6 +222,7 @@ test('applyWebviewOpsToSession can persist setValue changes for MCP Jane turns',
 test('session store tracks open panel state and external draft queue', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir);
     setPanelState(configDir, { open: true });
     enqueueExternalDraft(configDir, {
       id: 'draft-1',
@@ -285,6 +250,7 @@ test('session store tracks open panel state and external draft queue', () => {
 test('session store persists edited notebook cells and deleted entries as canonical cell data', () => {
   const configDir = mkTmpDir();
   try {
+    ensureTestTrail(configDir);
     replaceJaneEntries(configDir, [
       {
         question: 'plot fig 10',

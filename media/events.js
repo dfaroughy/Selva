@@ -218,33 +218,7 @@ function renderDashboardFromSession() {
 }
 
 function updateTrailControls() {
-  const select = document.getElementById('trail-select');
-  const status = document.getElementById('trail-status');
-  const nameInput = document.getElementById('trail-name-input');
-  if (!select) return;
-
-  const trails = Array.isArray(state.trails) ? state.trails : [];
-  select.innerHTML = trails.map((trail) => {
-    const suffix = trail.bootstrapDone ? '' : ' • needs bootstrap';
-    return `<option value="${escapeHtml(trail.id)}">${escapeHtml((trail.name || 'Trail') + suffix)}</option>`;
-  }).join('');
-  select.disabled = trails.length === 0;
-  if (state.activeTrailId) select.value = state.activeTrailId;
-  if (nameInput && trails.length === 0) nameInput.value = '';
-
-  if (status) {
-    if (!trails.length) {
-      status.textContent = 'Trails are persisted notebook lineages for this workspace.';
-      return;
-    }
-    const active = trails.find((trail) => trail.id === state.activeTrailId) || trails[0];
-    const updatedAt = active && active.updatedAt ? new Date(active.updatedAt).toLocaleString() : '';
-    const detail = active && active.bootstrapDone ? 'bootstrapped' : 'needs bootstrap';
-    status.textContent = `${active.name || 'Trail'} · ${detail}${updatedAt ? ` · updated ${updatedAt}` : ''}`;
-    if (nameInput && document.activeElement !== nameInput) {
-      nameInput.value = active && active.name ? active.name : '';
-    }
-  }
+  // Trail controls are now managed via the trail graph canvas
 }
 
 function applyTrailStatePayload(trails, activeTrail) {
@@ -253,7 +227,532 @@ function applyTrailStatePayload(trails, activeTrail) {
   state.activeTrailName = activeTrail && activeTrail.name ? activeTrail.name : '';
   state.activeTrailPath = activeTrail && activeTrail.path ? activeTrail.path : '';
   updateTrailControls();
+  renderTrailGraph();
 }
+
+// ── Trail graph (interactive canvas) ─────────────────────
+let _trailGraphHover = null;
+let _projectNodeSelected = false;
+let _dragNode = null;       // { type: 'project'|'trail', id?, offsetX, offsetY }
+const _userPositions = {};  // trailId → { x, y } — persists user-dragged positions
+let _projectUserPos = null; // { x, y } — persists dragged project node position
+
+function renderTrailGraph() {
+  const canvas = document.getElementById('trail-graph');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const trails = Array.isArray(state.trails) ? state.trails : [];
+
+  const style = getComputedStyle(document.documentElement);
+  const accent = style.getPropertyValue('--accent').trim() || '#4ec080';
+  const text0 = style.getPropertyValue('--text-0').trim() || '#e6e6e6';
+  const text2 = style.getPropertyValue('--text-2').trim() || '#666';
+  const border = style.getPropertyValue('--border').trim() || '#333';
+  const bg1 = style.getPropertyValue('--bg-1').trim() || '#111';
+  const fontSystem = style.getPropertyValue('--font-system').trim() || 'sans-serif';
+
+  // Project node at center-left (use dragged position if available)
+  const folderName = (state.configDir || '').split('/').pop() || 'Project';
+  const projectX = _projectUserPos ? _projectUserPos.x : 60;
+  const projectY = _projectUserPos ? _projectUserPos.y : H / 2;
+
+  // Layout trail nodes in a vertical spread to the right of the project
+  const nodes = [];
+  const trailStartX = 180;
+  const spacing = Math.min(40, (H - 40) / Math.max(trails.length, 1));
+  const startY = H / 2 - ((trails.length - 1) * spacing) / 2;
+
+  // Build parent→children map for fork offsets
+  const childrenOf = {};
+  for (const trail of trails) {
+    const pid = trail.parentTrailId || '';
+    if (pid) {
+      if (!childrenOf[pid]) childrenOf[pid] = [];
+      childrenOf[pid].push(trail.id);
+    }
+  }
+
+  // Position nodes in two passes: roots first, then forks (so parents exist before children)
+  const nodeMap = {};
+  const parentIds = new Set(trails.filter(t => t.parentTrailId).map(t => t.parentTrailId));
+  const rootTrails = trails.filter(t => !t.parentTrailId || !parentIds.has(t.parentTrailId) && !trails.some(p => p.id === t.parentTrailId));
+  const forkTrails = trails.filter(t => t.parentTrailId && trails.some(p => p.id === t.parentTrailId));
+
+  // Pass 1: place root trails (no parent or parent not in trail list)
+  let yIdx = 0;
+  for (const trail of rootTrails) {
+    const x = trailStartX;
+    const y = startY + yIdx * spacing;
+    yIdx++;
+    const node = { id: trail.id, name: trail.name || 'Trail', x, y, trail, isFork: false };
+    nodes.push(node);
+    nodeMap[trail.id] = node;
+  }
+
+  // Pass 2: place forks with repulsion (parent guaranteed to be positioned)
+  const forkSpacing = Math.max(spacing, 30); // minimum 30px between fork siblings
+  const placeForks = (parentList) => {
+    for (const trail of parentList) {
+      if (nodeMap[trail.id]) continue;
+      const parent = nodeMap[trail.parentTrailId];
+      if (!parent) continue;
+      const siblings = childrenOf[trail.parentTrailId] || [];
+      const sibIdx = siblings.indexOf(trail.id);
+      const x = parent.x + 100;
+      const y = parent.y + (sibIdx - (siblings.length - 1) / 2) * forkSpacing;
+      const node = { id: trail.id, name: trail.name || 'Trail', x, y, trail, isFork: true };
+      nodes.push(node);
+      nodeMap[trail.id] = node;
+    }
+  };
+  // Iterate until all forks are placed (handles multi-level forks)
+  for (let pass = 0; pass < 5 && forkTrails.some(t => !nodeMap[t.id]); pass++) {
+    placeForks(forkTrails);
+  }
+
+  // Apply user-dragged positions (overrides auto-layout)
+  for (const node of nodes) {
+    const pos = _userPositions[node.id];
+    if (pos) { node.x = pos.x; node.y = pos.y; }
+  }
+
+  // Draw edges
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = border;
+  for (const node of nodes) {
+    if (node.isFork && nodeMap[node.trail.parentTrailId]) {
+      // Fork edge: parent → child
+      const parent = nodeMap[node.trail.parentTrailId];
+      ctx.beginPath();
+      ctx.moveTo(parent.x, parent.y);
+      ctx.lineTo(node.x, node.y);
+      ctx.stroke();
+    } else {
+      // Root edge: project → trail
+      ctx.beginPath();
+      ctx.moveTo(projectX, projectY);
+      ctx.lineTo(node.x, node.y);
+      ctx.stroke();
+    }
+  }
+
+  // Draw project node
+  const projectRadius = 14;
+  ctx.beginPath();
+  ctx.arc(projectX, projectY, projectRadius, 0, Math.PI * 2);
+  ctx.fillStyle = _projectNodeSelected ? accent : bg1;
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = _projectNodeSelected ? 3 : 2;
+  ctx.stroke();
+  // Name below project node
+  ctx.fillStyle = accent;
+  ctx.font = `600 9px ${fontSystem}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(folderName, projectX, projectY + projectRadius + 4);
+
+  // Draw trail nodes
+  const nodeRadius = 6;
+  for (const node of nodes) {
+    const isActive = node.id === state.activeTrailId;
+    const isHovered = _trailGraphHover === node.id;
+
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, nodeRadius + (isHovered ? 2 : 0), 0, Math.PI * 2);
+    ctx.fillStyle = isActive ? accent : bg1;
+    ctx.fill();
+    ctx.strokeStyle = isActive ? accent : (isHovered ? text0 : border);
+    ctx.lineWidth = isActive ? 2.5 : 1.5;
+    ctx.stroke();
+
+    // Name below node
+    ctx.fillStyle = isActive ? accent : text2;
+    ctx.font = `400 9px ${fontSystem}`;
+    ctx.fillText(node.name, node.x, node.y + nodeRadius + 10);
+
+    // Entry count badge
+    if (node.trail.entryCount > 0) {
+      ctx.fillStyle = text2;
+      ctx.font = `400 8px ${fontSystem}`;
+      ctx.fillText(`${node.trail.entryCount} entries`, node.x, node.y + nodeRadius + 20);
+    }
+  }
+
+  // Store nodes for hit testing
+  canvas._trailNodes = nodes;
+  canvas._projectNode = { x: projectX, y: projectY, radius: projectRadius };
+}
+
+function trailGraphHitTest(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const nodes = canvas._trailNodes || [];
+  for (const node of nodes) {
+    const dx = x - node.x;
+    const dy = y - node.y;
+    if (dx * dx + dy * dy <= 12 * 12) return node;
+  }
+  return null;
+}
+
+function trailGraphProjectHitTest(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const pn = canvas._projectNode;
+  if (!pn) return false;
+  const dx = x - pn.x;
+  const dy = y - pn.y;
+  return dx * dx + dy * dy <= pn.radius * pn.radius;
+}
+
+function showNewTrailPopup(canvas) {
+  // Remove existing popup if any
+  const existing = document.getElementById('trail-graph-popup');
+  if (existing) existing.remove();
+
+  const rect = canvas.getBoundingClientRect();
+  const pn = canvas._projectNode || { x: 60, y: 100 };
+  const popup = document.createElement('div');
+  popup.id = 'trail-graph-popup';
+  popup.className = 'trail-graph-popup';
+  popup.style.left = (rect.left + pn.x - 60) + 'px';
+  popup.style.top = (rect.top + pn.y + pn.radius + 8) + 'px';
+  popup.innerHTML =
+    `<button class="trail-graph-popup-add">+ add research trail</button>` +
+    `<input type="text" class="trail-graph-popup-input" placeholder="Trail name (leave empty for auto)" spellcheck="false">`;
+  document.body.appendChild(popup);
+
+  const addBtn = popup.querySelector('.trail-graph-popup-add');
+  const nameInput = popup.querySelector('.trail-graph-popup-input');
+
+  function createTrail() {
+    const name = nameInput.value.trim();
+    vscode.postMessage({ type: 'janeTrailNew', name });
+    popup.remove();
+  }
+
+  addBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    nameInput.classList.toggle('hidden');
+    if (!nameInput.classList.contains('hidden')) {
+      nameInput.focus();
+    }
+  });
+
+  nameInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      createTrail();
+    }
+    if (e.key === 'Escape') {
+      popup.remove();
+    }
+  });
+
+  // Dismiss on outside click (delayed to avoid immediate dismiss)
+  setTimeout(() => {
+    const dismiss = (e) => {
+      if (!popup.contains(e.target)) {
+        popup.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    };
+    document.removeEventListener('click', dismiss);
+    document.addEventListener('click', dismiss);
+  }, 0);
+
+  nameInput.focus();
+}
+
+function showTrailInfoPopup(canvas, node) {
+  const existing = document.getElementById('trail-graph-popup');
+  if (existing) existing.remove();
+
+  const rect = canvas.getBoundingClientRect();
+  const popup = document.createElement('div');
+  popup.id = 'trail-graph-popup';
+  popup.className = 'trail-graph-popup';
+  popup.style.left = (rect.left + node.x - 80) + 'px';
+  popup.style.top = (rect.top + node.y + 18) + 'px';
+
+  const entries = node.trail.entryCount || 0;
+  const updated = node.trail.updatedAt ? new Date(node.trail.updatedAt).toLocaleString() : '';
+  const status = node.trail.bootstrapDone ? 'bootstrapped' : 'needs bootstrap';
+  const lastQ = node.trail.lastQuestion ? node.trail.lastQuestion.slice(0, 60) + (node.trail.lastQuestion.length > 60 ? '…' : '') : '—';
+
+  popup.innerHTML =
+    `<div class="trail-graph-popup-info">` +
+    `<div class="trail-info-name">${escapeHtml(node.name)}</div>` +
+    `<div class="trail-info-detail">${status} · ${entries} entries</div>` +
+    `<div class="trail-info-detail">${updated ? 'updated ' + updated : ''}</div>` +
+    `<div class="trail-info-lastq">last: ${escapeHtml(lastQ)}</div>` +
+    `</div>`;
+  document.body.appendChild(popup);
+
+  setTimeout(() => {
+    const dismiss = (e) => {
+      if (!popup.contains(e.target)) {
+        popup.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    };
+    document.addEventListener('click', dismiss);
+  }, 0);
+}
+
+function showTrailContextMenu(_canvas, node, clientX, clientY) {
+  const existing = document.getElementById('trail-graph-popup');
+  if (existing) existing.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'trail-graph-popup';
+  popup.className = 'trail-graph-popup';
+  popup.style.left = clientX + 'px';
+  popup.style.top = clientY + 'px';
+
+  const FORK_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6 3h4a3 3 0 0 1 3 3v1"/><path d="M6 13h4a3 3 0 0 0 3-3v-1"/><circle cx="4" cy="3" r="2"/><circle cx="4" cy="13" r="2"/><circle cx="14" cy="8" r="2"/></svg>`;
+  const TRASH_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M5.5 4V2.5a1 1 0 011-1h3a1 1 0 011 1V4"/><path d="M3.5 4v9a1.5 1.5 0 001.5 1.5h6a1.5 1.5 0 001.5-1.5V4"/></svg>`;
+
+  const RENAME_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z"/></svg>`;
+
+  popup.innerHTML =
+    `<div class="trail-ctx-rename-row">` +
+    `<span class="trail-ctx-rename-icon">${RENAME_SVG}</span>` +
+    `<input type="text" class="trail-ctx-rename-input" value="${escapeHtml(node.name)}" spellcheck="false">` +
+    `</div>` +
+    `<button class="trail-graph-popup-add trail-ctx-fork">${FORK_SVG} fork trail</button>` +
+    `<input type="text" class="trail-graph-popup-input hidden" placeholder="Fork name (leave empty for auto)" spellcheck="false">` +
+    `<button class="trail-graph-popup-delete trail-ctx-delete">${TRASH_SVG} delete trail</button>`;
+  document.body.appendChild(popup);
+
+  const renameInput = popup.querySelector('.trail-ctx-rename-input');
+  const forkBtn = popup.querySelector('.trail-ctx-fork');
+  const nameInput = popup.querySelector('.trail-graph-popup-input');
+  const deleteBtn = popup.querySelector('.trail-ctx-delete');
+
+  // Rename on Enter
+  renameInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newName = renameInput.value.trim();
+      if (newName && newName !== node.name) {
+        vscode.postMessage({ type: 'janeTrailRename', trailId: node.id, name: newName });
+      }
+      popup.remove();
+    }
+    if (e.key === 'Escape') {
+      popup.remove();
+    }
+  });
+  renameInput.focus();
+  renameInput.select();
+
+  forkBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    nameInput.classList.toggle('hidden');
+    if (!nameInput.classList.contains('hidden')) {
+      nameInput.focus();
+    }
+  });
+
+  nameInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const name = nameInput.value.trim();
+      vscode.postMessage({ type: 'janeTrailFork', name, sourceTrailId: node.id });
+      popup.remove();
+    }
+    if (e.key === 'Escape') {
+      popup.remove();
+    }
+  });
+
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popup.remove();
+    showDeleteTrailConfirmation(node);
+  });
+
+  setTimeout(() => {
+    const dismiss = (e) => {
+      if (!popup.contains(e.target)) {
+        popup.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    };
+    document.addEventListener('click', dismiss);
+  }, 0);
+}
+
+function showDeleteTrailConfirmation(node) {
+  const existing = document.getElementById('trail-delete-confirm');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'trail-delete-confirm';
+  overlay.className = 'trail-delete-overlay';
+  overlay.innerHTML =
+    `<div class="trail-delete-dialog">` +
+    `<div class="trail-delete-message">Are you sure you want to delete trail<br><strong>${escapeHtml(node.name)}</strong>?</div>` +
+    `<div class="trail-delete-hint">This will delete the trail and any downstream forks.</div>` +
+    `<div class="trail-delete-actions">` +
+    `<button class="btn trail-delete-yes">Yes</button>` +
+    `<button class="btn trail-delete-no">No</button>` +
+    `</div></div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.trail-delete-yes').addEventListener('click', () => {
+    vscode.postMessage({ type: 'janeTrailDelete', trailId: node.id });
+    overlay.remove();
+  });
+  overlay.querySelector('.trail-delete-no').addEventListener('click', () => {
+    overlay.remove();
+  });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
+// Wire canvas interactions
+(function initTrailGraph() {
+  const canvas = document.getElementById('trail-graph');
+  if (!canvas) return;
+
+  let _dragStartX = 0, _dragStartY = 0, _didDrag = false;
+
+  canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    _didDrag = false;
+    _dragStartX = e.clientX;
+    _dragStartY = e.clientY;
+
+    // Check project node
+    const pn = canvas._projectNode;
+    if (pn) {
+      const dx = mx - pn.x, dy = my - pn.y;
+      if (dx * dx + dy * dy <= pn.radius * pn.radius) {
+        _dragNode = { type: 'project', offsetX: dx, offsetY: dy };
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+    // Check trail nodes
+    const nodes = canvas._trailNodes || [];
+    for (const node of nodes) {
+      const dx = mx - node.x, dy = my - node.y;
+      if (dx * dx + dy * dy <= 12 * 12) {
+        _dragNode = { type: 'trail', id: node.id, offsetX: dx, offsetY: dy };
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (_dragNode) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const dist = Math.abs(e.clientX - _dragStartX) + Math.abs(e.clientY - _dragStartY);
+      if (dist > 3) _didDrag = true;
+
+      if (_dragNode.type === 'project') {
+        _projectUserPos = { x: mx - _dragNode.offsetX, y: my - _dragNode.offsetY };
+      } else {
+        _userPositions[_dragNode.id] = { x: mx - _dragNode.offsetX, y: my - _dragNode.offsetY };
+      }
+      renderTrailGraph();
+      return;
+    }
+
+    // Hover detection (no drag)
+    const isProject = trailGraphProjectHitTest(canvas, e.clientX, e.clientY);
+    const node = isProject ? null : trailGraphHitTest(canvas, e.clientX, e.clientY);
+    const hoverId = node ? node.id : null;
+    const showPointer = isProject || hoverId;
+    if (hoverId !== _trailGraphHover || (isProject && !_trailGraphHover)) {
+      _trailGraphHover = hoverId;
+      canvas.style.cursor = showPointer ? 'grab' : 'default';
+      renderTrailGraph();
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    const wasDragging = !!_dragNode;
+    const dragType = _dragNode ? _dragNode.type : null;
+    const dragId = _dragNode ? _dragNode.id : null;
+    _dragNode = null;
+    canvas.style.cursor = 'default';
+
+    // If it was a click (not a drag), handle click actions
+    if (!_didDrag) {
+      if (wasDragging && dragType === 'project') {
+        _projectNodeSelected = !_projectNodeSelected;
+        const promptPanel = document.getElementById('project-prompt-panel');
+        if (promptPanel) promptPanel.classList.toggle('hidden', !_projectNodeSelected);
+        renderTrailGraph();
+        return;
+      }
+      if (wasDragging && dragType === 'trail') {
+        if (dragId !== state.activeTrailId) {
+          vscode.postMessage({ type: 'janeTrailSwitch', trailId: dragId });
+        } else {
+          const node = (canvas._trailNodes || []).find(n => n.id === dragId);
+          if (node) showTrailInfoPopup(canvas, node);
+        }
+        return;
+      }
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    _dragNode = null;
+    if (_trailGraphHover) {
+      _trailGraphHover = null;
+      canvas.style.cursor = 'default';
+      renderTrailGraph();
+    }
+  });
+
+  canvas.addEventListener('contextmenu', (e) => {
+    // Right-click project node → new trail popup
+    if (trailGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
+      e.preventDefault();
+      showNewTrailPopup(canvas);
+      return;
+    }
+    const node = trailGraphHitTest(canvas, e.clientX, e.clientY);
+    if (node) {
+      e.preventDefault();
+      showTrailContextMenu(canvas, node, e.clientX, e.clientY);
+      return;
+    }
+    if (trailGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
+      e.preventDefault();
+    }
+  });
+
+  // Redraw on resize
+  const ro = new ResizeObserver(() => renderTrailGraph());
+  ro.observe(canvas);
+})();
 
 function resetLoadedConfigDrafts() {
   for (const config of Object.values(state.configs)) {
@@ -524,7 +1023,8 @@ window.addEventListener('message', event => {
       if (instrEditor) instrEditor.value = msg.additionalInstructions || '';
       const bitacoraDisplay = document.getElementById('bitacora-display');
       if (bitacoraDisplay) bitacoraDisplay.textContent = msg.bitacora || '(No bitácora yet — will be generated during bootstrap)';
-      updateSyspromptSparks();
+      const ppEditor = document.getElementById('project-prompt-editor');
+      if (ppEditor) ppEditor.value = msg.projectPrompt || '';
       const session = msg.session || {};
       applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
       state.availableCodingAgents = Array.isArray(msg.codingAgents) ? msg.codingAgents.slice() : [];
@@ -690,13 +1190,20 @@ window.addEventListener('message', event => {
         hydrateTrailSession(syncSession, { resetLoadedConfigs: true });
         const ie = document.getElementById('sysprompt-editor');
         if (ie) ie.value = syncSession.additionalInstructions || '';
-        updateSyspromptSparks();
         requestNotebookKernelStatus();
         break;
       }
+      // Check if entries changed BEFORE applying the snapshot
+      const diskEntryCount = Array.isArray(syncSession.entries) ? syncSession.entries.length : 0;
+      const domEntryCount = (state.sessionEntries || []).length;
+      const diskLastId = diskEntryCount > 0 ? (syncSession.entries[diskEntryCount - 1].id || '') : '';
+      const domLastId = domEntryCount > 0 ? (state.sessionEntries[domEntryCount - 1].id || '') : '';
+      const entriesChanged = diskEntryCount !== domEntryCount || diskLastId !== domLastId;
       applySessionSnapshot(syncSession);
       queueExternalDrafts(syncSession.pendingExternalDrafts || []);
-      rebuildChatLogFromSession({ external: true });
+      if (entriesChanged) {
+        rebuildChatLogFromSession({ external: true });
+      }
       renderDashboardFromSession();
       applyPendingExternalDrafts();
       requestNotebookKernelStatus();
@@ -704,7 +1211,15 @@ window.addEventListener('message', event => {
     }
     case 'trailState': {
       applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
-      hydrateTrailSession(msg.session || {}, { resetLoadedConfigs: true });
+      updateCodingAgentControls();
+      const trailSession = msg.session || {};
+      hydrateTrailSession(trailSession, { resetLoadedConfigs: true });
+      // Update bitácora and trail instructions for the new/switched trail
+      const bdEl = document.getElementById('bitacora-display');
+      if (bdEl) bdEl.textContent = trailSession.bitacora || '(No bitácora yet)';
+      const ieEl = document.getElementById('sysprompt-editor');
+      if (ieEl) ieEl.value = trailSession.additionalInstructions || '';
+      updateSyspromptSparks();
       const verb = msg.action === 'new'
         ? 'Started'
         : (msg.action === 'fork'
@@ -1001,6 +1516,7 @@ document.querySelector('.sp-close').addEventListener('click', toggleSettings);
 document.getElementById('set-label-font').addEventListener('change', onSettingChange);
 document.getElementById('set-field-font').addEventListener('change', onSettingChange);
 document.getElementById('set-value-font').addEventListener('change', onSettingChange);
+document.getElementById('set-system-font').addEventListener('change', onSettingChange);
 document.getElementById('set-font-size').addEventListener('input', onSettingChange);
 document.getElementById('set-bg0-color').addEventListener('input', onSettingChange);
 document.getElementById('set-bg1-color').addEventListener('input', onSettingChange);
@@ -1058,19 +1574,6 @@ if (codingAgentSelectEl) {
 }
 const connectAgentBtn = document.getElementById('connect-agent-btn');
 if (connectAgentBtn) connectAgentBtn.addEventListener('click', connectSelectedCodingAgent);
-const trailPanelBtn = document.getElementById('trail-panel-btn');
-if (trailPanelBtn) {
-  trailPanelBtn.addEventListener('click', () => {
-    const panel = document.getElementById('trail-panel');
-    const syspromptPanel = document.getElementById('agent-sysprompt-panel');
-    const syspromptBtn = document.getElementById('agent-sysprompt-btn');
-    if (!panel) return;
-    if (syspromptPanel) syspromptPanel.classList.add('hidden');
-    if (syspromptBtn) syspromptBtn.classList.remove('active');
-    const hidden = panel.classList.toggle('hidden');
-    trailPanelBtn.classList.toggle('active', !hidden);
-  });
-}
 const trailSelectEl = document.getElementById('trail-select');
 if (trailSelectEl) {
   trailSelectEl.addEventListener('change', e => {
@@ -1121,40 +1624,34 @@ if (trailForkBtn) {
   });
 }
 
-// ── System prompt panel toggle ──────────────────────────────
-const agentSyspromptBtn = document.getElementById('agent-sysprompt-btn');
-if (agentSyspromptBtn) {
-  agentSyspromptBtn.addEventListener('click', () => {
-    const panel = document.getElementById('agent-sysprompt-panel');
-    const trailPanel = document.getElementById('trail-panel');
-    const trailBtn = document.getElementById('trail-panel-btn');
-    if (!panel) return;
-    if (trailPanel) trailPanel.classList.add('hidden');
-    if (trailBtn) trailBtn.classList.remove('active');
-    const hidden = panel.classList.toggle('hidden');
-    agentSyspromptBtn.classList.toggle('active', !hidden);
+// ── Project prompt (workspace-wide) ──────────────────────
+const projectPromptEditor = document.getElementById('project-prompt-editor');
+if (projectPromptEditor) {
+  projectPromptEditor.addEventListener('input', () => {
+    vscode.postMessage({ type: 'saveProjectPrompt', text: projectPromptEditor.value });
   });
 }
+const projectPromptResetBtn = document.getElementById('project-prompt-reset');
+if (projectPromptResetBtn) {
+  projectPromptResetBtn.addEventListener('click', () => {
+    if (projectPromptEditor) projectPromptEditor.value = '';
+    vscode.postMessage({ type: 'saveProjectPrompt', text: '' });
+  });
+}
+
+// ── Trail instructions ──────────────────────────────
 const syspromptResetBtn = document.getElementById('sysprompt-reset');
 if (syspromptResetBtn) {
   syspromptResetBtn.addEventListener('click', () => {
     const editor = document.getElementById('sysprompt-editor');
     if (editor) editor.value = '';
-    updateSyspromptSparks();
     vscode.postMessage({ type: 'janeSessionSetInstructions', text: '' });
   });
 }
 
-function updateSyspromptSparks() {
-  const editor = document.getElementById('sysprompt-editor');
-  const active = !!(editor && editor.value.trim());
-  const button = document.getElementById('agent-sysprompt-btn');
-  if (button) button.classList.toggle('has-instructions', active);
-}
 const syspromptEditor = document.getElementById('sysprompt-editor');
 if (syspromptEditor) {
   syspromptEditor.addEventListener('input', () => {
-    updateSyspromptSparks();
     vscode.postMessage({ type: 'janeSessionSetInstructions', text: syspromptEditor.value });
   });
 }

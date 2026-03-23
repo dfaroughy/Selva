@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { createJaneTrail } = require('../lib/session-store');
 const {
   buildToolSchemas,
   createWorkspaceRuntime,
@@ -66,6 +67,7 @@ test('workspace runtime can list, read, and update YAML via MCP-style tools', as
       'utf8'
     );
 
+    createJaneTrail(tmpDir);
     const runtime = createWorkspaceRuntime({ configDir: tmpDir, extensionPath });
     const listResult = await runtime.callTool('list_files', {});
     assert.match(listResult, /trainer\.yaml/);
@@ -92,6 +94,7 @@ test('workspace runtime can list, read, and update YAML via MCP-style tools', as
 test('workspace runtime execute_python uses the active Trail kernel by default', async () => {
   const tmpDir = mkTmpDir();
   try {
+    createJaneTrail(tmpDir);
     const runtime = createWorkspaceRuntime({ configDir: tmpDir, extensionPath });
 
     const first = await runtime.callTool('execute_python', { code: 'x = 55' });

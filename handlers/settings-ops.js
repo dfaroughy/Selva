@@ -67,6 +67,11 @@ async function handleSettingsOp(msg, ctx) {
       sendModelList(panel);
       break;
     }
+    case 'saveProjectPrompt': {
+      const projectPromptKey = 'projectPrompt:' + configDir;
+      context.workspaceState.update(projectPromptKey, msg.text || '');
+      break;
+    }
     case 'openUrl': {
       const url = msg.url;
       if (url && /^https?:\/\//.test(url)) {

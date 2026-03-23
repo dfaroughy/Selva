@@ -211,12 +211,7 @@ function updateCodingAgentControls(preferredAgentId) {
 
   if (!row || !select || !button || !logo) return;
 
-  if (!agents.length) {
-    row.classList.add('hidden');
-    return;
-  }
-
-  row.classList.remove('hidden');
+  if (!agents.length) return;
   const requestedId = preferredAgentId || state.selectedCodingAgentId || (vscode.getState() || {}).selectedCodingAgentId || '';
   const selectedAgent = agents.find((agent) => agent.id === requestedId) || agents[0];
   state.selectedCodingAgentId = selectedAgent ? selectedAgent.id : '';
@@ -342,7 +337,13 @@ function _makeDeletable(cell, closeEl) {
 
 function _renderOutput(outputEl, rawResult) {
   outputEl.dataset.rawResult = rawResult || '';
-  if (!rawResult) { outputEl.innerHTML = '<span class="nb-output-empty">(no output)</span>'; return; }
+  // Preserve the menu wrap if it lives inside the output div
+  const menuWrap = outputEl.querySelector('.nb-output-menu-wrap');
+  if (!rawResult) {
+    outputEl.innerHTML = '<span class="nb-output-empty">(no output)</span>';
+    if (menuWrap) outputEl.appendChild(menuWrap);
+    return;
+  }
   const imgs = [];
   const textLines = [];
   for (const line of String(rawResult).split(/\r?\n/)) {
@@ -355,6 +356,7 @@ function _renderOutput(outputEl, rawResult) {
   if (result.trim()) html += `<pre class="nb-output-text">${escapeHtml(result.trim())}</pre>`;
   for (const b64 of imgs) html += `<img class="agent-plot" src="data:image/png;base64,${b64}" alt="plot" />`;
   outputEl.innerHTML = html || '<span class="nb-output-empty">(no output)</span>';
+  if (menuWrap) outputEl.appendChild(menuWrap);
 }
 
 let _persistNotebookTimer = null;
@@ -676,14 +678,6 @@ function buildCell(block) {
 
   if (kind === 'markdown') {
     const startEditing = !!block.startEditing;
-    const mdLogo = `<svg class="md-logo" width="16" height="10" viewBox="0 0 208 128" fill="#4169aa"><path d="M15 10h18l30 39 30-39h18v108h-21V44L63 83 36 44v74H15zm123 0h21v66l35-38 35 38V10h21v108h-21l-35-39-35 39H138z"/></svg>`;
-    const toolbar = _cellToolbar(
-      `${mdLogo}<span class="py-toolbar-spacer"></span>` +
-      `<button class="nb-run nb-md-run" title="Render (Shift+Enter)"><svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span></button>` +
-      `<span class="nb-toggle">${ICON_COLLAPSE}</span>` +
-      `<button class="nb-close" title="Remove">${CELL_CLOSE_SVG}</button>`
-    );
-    cell.appendChild(toolbar);
 
     // Rendered output (shown by default)
     const rendered = document.createElement('div');
@@ -701,33 +695,89 @@ function buildCell(block) {
     cell.appendChild(editor);
 
     let editMode = startEditing;
-    function toggleEditMode() {
-      editMode = !editMode;
-      rendered.classList.toggle('hidden', editMode);
-      editor.classList.toggle('hidden', !editMode);
-      if (editMode) {
-        editor.rows = Math.max(3, editor.value.split('\n').length + 1);
-        editor.focus();
-      }
+    function enterEditMode() {
+      if (editMode) return;
+      editMode = true;
+      rendered.classList.add('hidden');
+      editor.classList.remove('hidden');
+      editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+      editor.focus();
     }
-    function runMd() {
+    function exitEditMode() {
+      if (!editMode) return;
+      editMode = false;
       rendered.innerHTML = renderMarkdownLatex(editor.value);
-      if (editMode) toggleEditMode();
+      rendered.classList.remove('hidden');
+      // Re-collapse after editing
+      rendered.classList.remove('md-body-expanded');
+      editor.classList.add('hidden');
       wireLinks(cell);
+      _checkMdHeight();
       scheduleNotebookSessionPersist();
     }
 
-    // Double-click rendered text to edit
-    rendered.addEventListener('dblclick', toggleEditMode);
+    // Progressive single-click: collapsed → expanded → edit mode
+    rendered.addEventListener('click', () => {
+      const isCollapsed = !rendered.classList.contains('md-body-expanded')
+        && !rendered.classList.contains('md-body-short');
+      if (isCollapsed) {
+        // First click: expand
+        rendered.classList.add('md-body-expanded');
+      } else {
+        // Second click: enter edit mode
+        enterEditMode();
+      }
+    });
 
-    // Run button
-    toolbar.querySelector('.nb-md-run').addEventListener('click', runMd);
+    // Check if markdown is short (no collapse needed)
+    const _checkMdHeight = () => {
+      requestAnimationFrame(() => {
+        const entry = cell.closest('.nb-entry');
+        if (entry && entry.classList.contains('nb-collapsed')) return;
+        if (rendered.scrollHeight === 0) return;
+        rendered.classList.toggle('md-body-short', rendered.scrollHeight <= 130);
+      });
+    };
 
-    // Shift+Enter in editor to render
+    // Gutter menu (three dots → trash + copy, vertical)
+    const menuWrap = document.createElement('div');
+    menuWrap.className = 'nb-md-menu-wrap';
+    const mdDots = document.createElement('button');
+    mdDots.className = 'nb-md-dots';
+    mdDots.innerHTML = '&#8943;';
+    mdDots.title = 'Actions';
+    const mdDropdown = document.createElement('div');
+    mdDropdown.className = 'nb-md-dropdown hidden';
+    mdDropdown.innerHTML =
+      `<button class="nb-md-dropdown-item nb-md-delete" title="Delete">${CELL_CLOSE_SVG}</button>` +
+      `<button class="nb-md-dropdown-item nb-md-copy" title="Copy">${CELL_COPY_SVG}</button>`;
+    menuWrap.appendChild(mdDots);
+    menuWrap.appendChild(mdDropdown);
+    cell.appendChild(menuWrap);
+
+    mdDots.addEventListener('click', (e) => {
+      e.stopPropagation();
+      mdDropdown.classList.toggle('hidden');
+    });
+    mdDropdown.querySelector('.nb-md-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      mdDropdown.classList.add('hidden');
+      cell.remove();
+      flushNotebookSessionPersist();
+    });
+    mdDropdown.querySelector('.nb-md-copy').addEventListener('click', (e) => {
+      e.stopPropagation();
+      mdDropdown.classList.add('hidden');
+      const text = editor.value || rendered.textContent || '';
+      navigator.clipboard.writeText(text).then(() => toast('Copied'));
+    });
+    document.addEventListener('click', () => mdDropdown.classList.add('hidden'));
+
+    // Shift+Enter or Escape in editor → exit edit mode
     editor.addEventListener('keydown', (e) => {
-      if (e.shiftKey && e.key === 'Enter') {
+      if ((e.shiftKey && e.key === 'Enter') || e.key === 'Escape') {
         e.preventDefault();
-        runMd();
+        exitEditMode();
       }
     });
     // Auto-resize editor
@@ -737,10 +787,12 @@ function buildCell(block) {
       cell.dataset.editedAt = new Date().toISOString();
       scheduleNotebookSessionPersist();
     });
-    editor.addEventListener('blur', () => flushNotebookSessionPersist());
+    // Click outside editor → exit edit mode
+    editor.addEventListener('blur', () => exitEditMode());
 
-    _makeCollapsible(cell, toolbar.querySelector('.nb-toggle'));
-    _makeDeletable(cell, toolbar.querySelector('.nb-close'));
+    // Start markdown cells fully expanded
+    rendered.classList.add('md-body-expanded');
+    _checkMdHeight();
     if (startEditing) {
       requestAnimationFrame(() => {
         editor.rows = Math.max(3, editor.value.split('\n').length + 1);
@@ -768,11 +820,13 @@ function buildCell(block) {
     cellIndex.textContent = `[${cellNum}]`;
     cell.appendChild(cellIndex);
 
+    const CELL_COLLAPSE_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.5l4.5 4.5M14.5 1.5L10 6M1.5 14.5L6 10M14.5 14.5L10 10"/><path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     const toolbar = _cellToolbar(
       `${PY_LOGO_SVG}` +
       `<button class="nb-cell-prompt-btn" title="Ask agent to edit this code">&gt;_</button>` +
       `<input type="text" class="nb-cell-prompt-input hidden" placeholder="edit or debug instructions..." spellcheck="false">` +
       `<span class="py-toolbar-spacer"></span>` +
+      `<button class="nb-cell-collapse-btn hidden" title="Collapse cell">${CELL_COLLAPSE_SVG}</button>` +
       `<button class="nb-insert nb-insert-up" title="Insert python cell above">${CELL_INSERT_UP_SVG}</button>` +
       `<button class="nb-insert nb-insert-down" title="Insert python cell below">${CELL_INSERT_DOWN_SVG}</button>` +
       `<button class="nb-run" style="display:none"></button>` +
@@ -791,6 +845,7 @@ function buildCell(block) {
     });
     const runBtn = toolbar.querySelector('.nb-run');
     const copyBtn = toolbar.querySelector('.nb-copy');
+    const collapseBtn = toolbar.querySelector('.nb-cell-collapse-btn');
     const insertUpBtn = toolbar.querySelector('.nb-insert-up');
     const insertDownBtn = toolbar.querySelector('.nb-insert-down');
     const playSvg = '<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor"><path d="M1 0.5v13l10.5-6.5z"/></svg><span>Run</span>';
@@ -917,12 +972,60 @@ function buildCell(block) {
 
     // Code area
     const codeWrap = document.createElement('div');
-    codeWrap.className = 'py-cell';
+    codeWrap.className = 'py-cell' + (block.expanded ? ' py-cell-expanded' : '');
     const codeEditorHost = document.createElement('div');
     codeEditorHost.className = 'py-cell-editor';
     codeWrap.appendChild(codeEditorHost);
-    codeWrap.appendChild(cellIndex);
     cell.appendChild(codeWrap);
+    cell.appendChild(cellIndex);
+
+    // Click on collapsed code area → expand + select
+    codeWrap.addEventListener('click', (e) => {
+      // Always select the cell on click
+      if (_selectedCell && _selectedCell !== cell) {
+        _selectedCell.classList.remove('nb-cell-selected');
+      }
+      cell.classList.add('nb-cell-selected');
+      _selectedCell = cell;
+      // Expand if collapsed
+      if (!codeWrap.classList.contains('py-cell-expanded')) {
+        e.stopPropagation();
+        codeWrap.classList.add('py-cell-expanded');
+        if (!codeWrap.classList.contains('py-cell-short')) {
+          collapseBtn.classList.remove('hidden');
+        }
+        if (cell._cmEditor) {
+          cell._cmEditor.setOption('readOnly', false);
+          requestAnimationFrame(() => cell._cmEditor.refresh());
+        }
+      }
+    });
+
+    // Collapse button → re-collapse cell
+    collapseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      codeWrap.classList.remove('py-cell-expanded');
+      collapseBtn.classList.add('hidden');
+      const out = cell.querySelector('.nb-output');
+      if (out) out.classList.remove('nb-output-expanded');
+    });
+
+    // Mark short cells so the fade gradient and collapse button are hidden
+    const _checkCellHeight = () => {
+      requestAnimationFrame(() => {
+        // Skip measurement if cell is inside a collapsed entry (scrollHeight = 0)
+        const entry = cell.closest('.nb-entry');
+        if (entry && entry.classList.contains('nb-collapsed')) return;
+        const scrollH = codeWrap.scrollHeight;
+        if (scrollH === 0) return; // not rendered yet
+        const isShort = scrollH <= 130;
+        codeWrap.classList.toggle('py-cell-short', isShort);
+        // Hide collapse button if cell is short (nothing to collapse)
+        if (isShort) {
+          collapseBtn.classList.add('hidden');
+        }
+      });
+    };
 
     const codeEditor = buildCodeMirrorEditor(codeEditorHost, block.code || '', runCurrentCode);
     if (codeEditor) {
@@ -932,6 +1035,7 @@ function buildCell(block) {
           cell.dataset.editedBy = 'human';
           cell.dataset.editedAt = new Date().toISOString();
         }
+        _checkCellHeight();
       });
     } else {
       const codeArea = document.createElement('textarea');
@@ -953,18 +1057,29 @@ function buildCell(block) {
       });
     }
 
-    // Output area
+    // Output area (position: relative so the menu anchors to its top)
     const output = document.createElement('div');
     const initialOutput = block.output || '';
     cell.dataset.runState = normalizeNotebookPythonRunState(block.runState, initialOutput);
     output.className = 'nb-output' + (initialOutput ? '' : ' hidden');
     cell.appendChild(output);
-    if (initialOutput) {
-      _renderOutput(output, initialOutput);
-    }
+
+    // Click on collapsed output → expand
+    output.addEventListener('click', () => {
+      if (!output.classList.contains('nb-output-expanded')) {
+        output.classList.add('nb-output-expanded');
+      }
+    });
+
+    // Check short output after render
+    const _checkOutputHeight = () => {
+      requestAnimationFrame(() => {
+        output.classList.toggle('nb-output-short', output.scrollHeight <= 200);
+      });
+    };
 
     // Output margin menu (three dots → dropdown with clear/copy)
-    // Lives as a sibling after the output div, positioned absolutely
+    // Lives inside the output div, positioned absolutely at the top
     const outputMenuWrap = document.createElement('div');
     outputMenuWrap.className = 'nb-output-menu-wrap' + (initialOutput ? '' : ' hidden');
     const outputDots = document.createElement('button');
@@ -982,7 +1097,17 @@ function buildCell(block) {
       `</button>`;
     outputMenuWrap.appendChild(outputDots);
     outputMenuWrap.appendChild(outputDropdown);
-    cell.appendChild(outputMenuWrap);
+    output.appendChild(outputMenuWrap);
+
+    if (initialOutput) {
+      _renderOutput(output, initialOutput);
+      _checkOutputHeight();
+    }
+    _checkCellHeight();
+    // Show collapse button if cell starts expanded and isn't short
+    if (block.expanded && !codeWrap.classList.contains('py-cell-short')) {
+      collapseBtn.classList.remove('hidden');
+    }
 
     outputDots.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1077,6 +1202,9 @@ function buildCell(block) {
         }
         // Show the output menu now that there's output
         outputMenuWrap.classList.remove('hidden');
+        // Expand output to show fresh results, then check if short
+        targetOutput.classList.add('nb-output-expanded');
+        _checkOutputHeight();
         if (msg.status) setNotebookKernelStatus(msg.status);
         else requestNotebookKernelStatus();
         flushNotebookSessionPersist();
@@ -1101,8 +1229,11 @@ function buildCell(block) {
         started: true,
         state: 'busy',
       });
-      output.className = 'nb-output';
+      output.className = 'nb-output nb-output-expanded';
+      // Preserve menu wrap, clear content
+      const _menuWrap = output.querySelector('.nb-output-menu-wrap');
       output.innerHTML = '<span class="nb-output-pending">Running...</span>';
+      if (_menuWrap) output.appendChild(_menuWrap);
       const currentCode = cell._cmEditor ? cell._cmEditor.getValue() : ((cell.querySelector('.py-cell-input') || {}).value || '');
       vscode.postMessage({
         type: 'executeCell',
@@ -1394,11 +1525,15 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
   if (_typingTimer) { clearInterval(_typingTimer); _typingTimer = null; }
   log.querySelectorAll('.typing-cursor').forEach(c => c.remove());
 
-  // Auto-collapse previous entries
+  // Auto-collapse previous entries and their cells
   log.querySelectorAll('.nb-entry:not(.nb-collapsed)').forEach(prev => {
     prev.classList.add('nb-collapsed');
     const tog = prev.querySelector('.nb-entry-toggle');
     if (tog) tog.innerHTML = ICON_EXPAND;
+    // Collapse all python cells inside the entry
+    prev.querySelectorAll('.py-cell-expanded').forEach(pc => pc.classList.remove('py-cell-expanded'));
+    prev.querySelectorAll('.nb-output-expanded').forEach(out => out.classList.remove('nb-output-expanded'));
+    prev.querySelectorAll('.nb-cell-collapse-btn').forEach(btn => btn.classList.add('hidden'));
   });
 
   // ── Create notebook entry ──────────────────────────
@@ -1422,11 +1557,34 @@ function addChatEntry(question, answerText, diffs, isError, executedCells, optio
     entry.classList.toggle('nb-collapsed');
     const collapsed = entry.classList.contains('nb-collapsed');
     this.innerHTML = collapsed ? ICON_EXPAND : ICON_COLLAPSE;
-    // Refresh CodeMirror editors after expanding (they render as 0-height when hidden)
-    if (!collapsed) {
+    if (collapsed) {
+      // Collapse all cells when entry collapses
+      entry.querySelectorAll('.py-cell-expanded').forEach(pc => pc.classList.remove('py-cell-expanded'));
+      entry.querySelectorAll('.nb-output-expanded').forEach(out => out.classList.remove('nb-output-expanded'));
+      entry.querySelectorAll('.nb-cell-collapse-btn').forEach(btn => btn.classList.add('hidden'));
+      entry.querySelectorAll('.md-body-expanded').forEach(mb => mb.classList.remove('md-body-expanded'));
+    } else {
+      // Refresh CodeMirror editors and recheck cell heights after expanding
+      // (cells render as 0-height when hidden, so fade/short detection was skipped)
       requestAnimationFrame(() => {
-        entry.querySelectorAll('.nb-cell').forEach((cell) => {
-          if (cell._cmEditor) cell._cmEditor.refresh();
+        entry.querySelectorAll('.nb-cell').forEach((c) => {
+          if (c._cmEditor) c._cmEditor.refresh();
+          // Recheck python cell height
+          const cw = c.querySelector('.py-cell');
+          if (cw && !cw.classList.contains('py-cell-expanded')) {
+            const scrollH = cw.scrollHeight;
+            if (scrollH > 0) {
+              cw.classList.toggle('py-cell-short', scrollH <= 130);
+            }
+          }
+          // Recheck markdown cell body height
+          const mdBody = c.querySelector('.nb-cell-body.rich-text');
+          if (mdBody && !mdBody.classList.contains('md-body-expanded')) {
+            const scrollH = mdBody.scrollHeight;
+            if (scrollH > 0) {
+              mdBody.classList.toggle('md-body-short', scrollH <= 130);
+            }
+          }
         });
       });
     }

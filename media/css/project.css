@@ -1,0 +1,398 @@
+/* ── System prompt editor ────────────────────────── */
+#agent-sysprompt-panel {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px 10px;
+}
+#agent-sysprompt-panel.hidden { display: none; }
+.sysprompt-columns {
+  display: flex;
+  gap: 12px;
+}
+.sysprompt-col {
+  flex: 1;
+  min-width: 0;
+}
+.bitacora-display {
+  width: 100%;
+  min-height: 180px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  color: var(--text-2);
+  font-family: var(--font-system);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+}
+#trail-panel {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px 10px;
+}
+#trail-panel.hidden { display: none; }
+.sysprompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 6px;
+}
+.sysprompt-title {
+  font-family: var(--font-system);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.sysprompt-reset-btn {
+  font-family: var(--font-system);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.sysprompt-reset-btn:hover { color: var(--text-1); border-color: var(--text-2); }
+#sysprompt-editor {
+  width: 100%;
+  min-height: 180px;
+  max-height: 50vh;
+  resize: vertical;
+  background: var(--bg-0);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--font-system);
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+  box-sizing: border-box;
+}
+#sysprompt-editor:focus { outline: none; border-color: var(--accent); }
+.sysprompt-footer {
+  padding: 4px 0 0;
+}
+.sysprompt-hint {
+  font-family: var(--font-system);
+  font-size: 10px;
+  color: var(--text-2);
+  opacity: 0.7;
+}
+#agent-sysprompt-btn.active { color: var(--accent); }
+#agent-sysprompt-btn.has-instructions {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+#trail-panel-btn.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+/* Trail graph canvas */
+#trail-graph {
+  width: 100%;
+  height: 180px;
+  display: block;
+  cursor: pointer;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+}
+.trail-panel-controls {
+  padding: 0;
+}
+/* Trail graph popup (new trail from project node) */
+.trail-graph-popup {
+  position: fixed;
+  z-index: 100;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+.trail-graph-popup-add {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: var(--font-system);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-align: left;
+  border-radius: 3px;
+}
+.trail-graph-popup-add:hover {
+  background: var(--bg-2);
+}
+.trail-graph-popup-input {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-1);
+  font-family: var(--font-system);
+  font-size: 11px;
+  padding: 4px 8px;
+  outline: none;
+}
+.trail-graph-popup-input:focus {
+  border-color: var(--accent);
+}
+.trail-graph-popup-input.hidden { display: none; }
+.trail-graph-popup-switch {
+  background: none;
+  border: none;
+  color: var(--text-1);
+  font-family: var(--font-system);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-align: left;
+  border-radius: 3px;
+}
+.trail-graph-popup-switch:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+/* Trail info popup */
+.trail-graph-popup-info {
+  padding: 2px 4px;
+}
+.trail-info-name {
+  font-family: var(--font-system);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-0);
+  margin-bottom: 4px;
+}
+.trail-info-detail {
+  font-family: var(--font-system);
+  font-size: 10px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.trail-info-lastq {
+  font-family: var(--font-system);
+  font-size: 10px;
+  color: var(--text-2);
+  font-style: italic;
+  margin-top: 4px;
+}
+/* Trail context menu delete */
+.trail-graph-popup-delete {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-family: var(--font-system);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-align: left;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trail-graph-popup-delete:hover {
+  background: #3a1a1a;
+  color: #f78166;
+}
+.trail-ctx-fork {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Trail context menu rename */
+.trail-ctx-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.trail-ctx-rename-icon {
+  color: var(--text-2);
+  flex-shrink: 0;
+  display: flex;
+}
+.trail-ctx-rename-input {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-0);
+  font-family: var(--font-system);
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+  width: 120px;
+}
+.trail-ctx-rename-input:focus {
+  border-color: var(--accent);
+}
+/* Delete confirmation overlay */
+.trail-delete-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.trail-delete-dialog {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 28px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  max-width: 320px;
+}
+.trail-delete-message {
+  font-family: var(--font-system);
+  font-size: 13px;
+  color: var(--text-0);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.trail-delete-hint {
+  font-family: var(--font-system);
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 16px;
+}
+.trail-delete-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+.trail-delete-yes {
+  background: #6e2020;
+  border-color: #904040;
+  color: #ff9090;
+}
+.trail-delete-yes:hover { background: #8a2a2a; }
+.trail-delete-no {
+  background: var(--bg-2);
+}
+.trail-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 6px;
+}
+.trail-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.trail-panel-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-2);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trail-panel-grid {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+}
+.trail-panel-label {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.trail-panel-select,
+.trail-panel-input {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-1);
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+.trail-panel-select:focus,
+.trail-panel-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.trail-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.trail-panel-action {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+
+#save-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* Trail graph inside dash-panel */
+#trails-panel .dash-panel-body {
+  padding: 0;
+}
+#trails-panel #trail-graph {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+
+
+/* Project prompt panel (shown when project node is selected) */
+.project-panel-body {
+  display: flex;
+  gap: 0;
+}
+.project-panel-body #trail-graph {
+  flex: 1;
+  min-width: 0;
+}
+#project-prompt-panel {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 0 12px 8px;
+  border-left: 1px solid var(--border);
+}
+#project-prompt-panel.hidden { display: none; }
+#project-prompt-editor {
+  width: 100%;
+  min-height: 140px;
+  max-height: 40vh;
+  resize: vertical;
+  background: var(--bg-0);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-system);
+  font-size: 12px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+#project-prompt-editor:focus { outline: none; border-color: var(--accent); }

@@ -49,8 +49,9 @@ test('detects Codex from the installed extension even without VS Code commands',
     ],
   });
 
-  assert.strictEqual(agents.length, 1);
-  assert.strictEqual(agents[0].id, 'codex');
+  assert.strictEqual(agents.length, 2);
+  assert.strictEqual(agents[0].id, 'claude-code');
+  assert.strictEqual(agents[1].id, 'codex');
 });
 
 test('prefers Claude Code as the default coding agent when available', () => {

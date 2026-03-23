@@ -25,26 +25,39 @@ async function handleTrailOp(msg, ctx) {
 
   switch (msg.type) {
     case 'init': {
-      setPanelState(configDir, { open: true });
+      // Trail-independent data (always available)
       const files = findYamlFiles(configDir, configDir);
       const userDefaultSettings = context.globalState.get('userDefaultSettings', null);
       const pinnedKey = 'pinnedFields:' + configDir;
       const pinnedFields = context.workspaceState.get(pinnedKey, {});
-      const defaultPromptTemplate = fs.readFileSync(
-        path.join(context.extensionPath, 'ecosystem', 'prompts', 'SYSTEM.md'), 'utf8'
-      );
+      const projectPromptKey = 'projectPrompt:' + configDir;
+      const projectPrompt = context.workspaceState.get(projectPromptKey, '');
       const maskedKeys = {
         anthropic: apiKeys.anthropic ? '••••' + apiKeys.anthropic.slice(-4) : '',
         openai: apiKeys.openai ? '••••' + apiKeys.openai.slice(-4) : '',
       };
-      let janeSession = janeRuntime.getSession();
-      const legacyAdditionalInstructions = context.globalState.get('additionalInstructions', '');
-      if (!janeSession.additionalInstructions && legacyAdditionalInstructions) {
-        janeSession = janeRuntime.setSessionInstructions(legacyAdditionalInstructions);
-      }
       const codingAgents = await listCodingAgents();
+      let defaultPromptTemplate = '';
+      try {
+        defaultPromptTemplate = fs.readFileSync(
+          path.join(context.extensionPath, 'ecosystem', 'prompts', 'SYSTEM.md'), 'utf8'
+        );
+      } catch {}
+
+      // Trail-dependent data (may be empty if no trails exist yet)
       const trailState = janeRuntime.listTrails();
+      const hasTrails = trailState.trails.length > 0;
+      let janeSession = {};
+      if (hasTrails) {
+        try { setPanelState(configDir, { open: true }); } catch {}
+        janeSession = janeRuntime.getSession();
+        const legacyAdditionalInstructions = context.globalState.get('additionalInstructions', '');
+        if (!janeSession.additionalInstructions && legacyAdditionalInstructions) {
+          janeSession = janeRuntime.setSessionInstructions(legacyAdditionalInstructions);
+        }
+      }
       updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
+
       panel.webview.postMessage({
         type: 'init',
         files,
@@ -55,6 +68,7 @@ async function handleTrailOp(msg, ctx) {
         apiKeys: maskedKeys,
         additionalInstructions: janeSession.additionalInstructions || '',
         bitacora: janeSession.bitacora || '',
+        projectPrompt,
         session: janeSession,
         trails: trailState.trails,
         activeTrail: trailState.activeTrail,
@@ -74,7 +88,11 @@ async function handleTrailOp(msg, ctx) {
       break;
     }
     case 'persistSessionEntries': {
-      suppressLocalSessionSync(configDir);
+      // Do NOT suppress session sync here — MCP-originated writes
+      // (jane_add_cells etc.) must still reach the webview via the
+      // file watcher. The webview's own persist is harmless: the
+      // subsequent janeSessionSync rebuild is a no-op when entries
+      // haven't changed (same content).
       janeRuntime.replaceSessionEntries(msg.entries || []);
       break;
     }

@@ -1,0 +1,128 @@
+/* ── Header ──────────────────────────────────────── */
+#sticky-top {
+  flex-shrink: 0;
+  z-index: 100;
+  background: var(--bg-0);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 18px;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border);
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.logo-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.selva-logo {
+  height: 53px;
+  width: auto;
+  color: transparent;
+  filter:
+    drop-shadow(0 0 2px var(--accent))
+    drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent))
+    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 30%, transparent));
+}
+.selva-logo path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 10;
+}
+.header-left .project-badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  background: var(--accent-dim);
+  color: #fff;
+  border-radius: 10px;
+  font-family: var(--font-field);
+  font-weight: 400;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.search-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-2);
+  pointer-events: none;
+}
+#search {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-1);
+  padding: 5px 12px 5px 28px;
+  font-size: 12px;
+  width: 180px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+#search:focus { border-color: var(--accent); }
+#search::placeholder { color: var(--text-2); }
+
+.btn {
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-family: var(--font-system);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-weight: 500;
+}
+.btn:hover { background: var(--bg-3); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-primary {
+  background: var(--accent-dim);
+  color: #fff;
+  border-color: var(--accent-dim);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent); }
+.btn-save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Gear button ─────────────────────────────────── */
+.btn-icon {
+  padding: 4px 7px;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+}
+.btn-icon:hover { color: var(--text-0); background: var(--bg-3); }
+.btn-icon.active { color: var(--accent); border-color: var(--accent); }
+

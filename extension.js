@@ -660,7 +660,13 @@ function activate(context) {
 
       const mediaUri = (file) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', file));
       const vendorUri = (file) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'vendor', file));
-      const cssUri      = mediaUri('webview.css');
+      const cssBaseUri       = mediaUri('css/base.css');
+      const cssHeaderUri     = mediaUri('css/header.css');
+      const cssSettingsUri   = mediaUri('css/settings.css');
+      const cssDashboardUri  = mediaUri('css/dashboard.css');
+      const cssProjectUri    = mediaUri('css/project.css');
+      const cssNotebookUri   = mediaUri('css/notebook.css');
+      const cssRichBlocksUri = mediaUri('css/rich-blocks.css');
       const codeMirrorCssUri = vendorUri('codemirror/lib/codemirror.css');
       const katexCssUri = vendorUri('katex.min.css');
       const codeMirrorUri = vendorUri('codemirror/lib/codemirror.js');
@@ -684,7 +690,13 @@ function activate(context) {
       html = html
         .replace(/\{\{NONCE\}\}/g, nonce)
         .replace(/\{\{CSP_SOURCE\}\}/g, cspSource)
-        .replace('{{CSS_URI}}',       cssUri.toString())
+        .replace('{{CSS_BASE_URI}}',       cssBaseUri.toString())
+        .replace('{{CSS_HEADER_URI}}',     cssHeaderUri.toString())
+        .replace('{{CSS_SETTINGS_URI}}',   cssSettingsUri.toString())
+        .replace('{{CSS_DASHBOARD_URI}}',  cssDashboardUri.toString())
+        .replace('{{CSS_PROJECT_URI}}',   cssProjectUri.toString())
+        .replace('{{CSS_NOTEBOOK_URI}}',   cssNotebookUri.toString())
+        .replace('{{CSS_RICHBLOCKS_URI}}', cssRichBlocksUri.toString())
         .replace('{{CODEMIRROR_CSS_URI}}', codeMirrorCssUri.toString())
         .replace('{{KATEX_CSS_URI}}', katexCssUri.toString())
         .replace('{{CODEMIRROR_URI}}', codeMirrorUri.toString())
