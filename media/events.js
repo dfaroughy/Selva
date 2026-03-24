@@ -1022,7 +1022,7 @@ window.addEventListener('message', event => {
       const instrEditor = document.getElementById('sysprompt-editor');
       if (instrEditor) instrEditor.value = msg.additionalInstructions || '';
       const bitacoraDisplay = document.getElementById('bitacora-display');
-      if (bitacoraDisplay) bitacoraDisplay.textContent = msg.bitacora || '(No bitácora yet — will be generated during bootstrap)';
+      if (bitacoraDisplay) bitacoraDisplay.innerHTML = renderMarkdownLatex(msg.bitacora || '*(No bitácora yet)*');
       const ppEditor = document.getElementById('project-prompt-editor');
       if (ppEditor) ppEditor.value = msg.projectPrompt || '';
       const session = msg.session || {};
@@ -1185,7 +1185,7 @@ window.addEventListener('message', event => {
       // Refresh bitácora display
       const syncSession = msg.session || {};
       const bd = document.getElementById('bitacora-display');
-      if (bd) bd.textContent = syncSession.bitacora || '(No bitácora yet)';
+      if (bd) bd.innerHTML = renderMarkdownLatex(syncSession.bitacora || '*(No bitácora yet)*');
       if (trailChanged) {
         hydrateTrailSession(syncSession, { resetLoadedConfigs: true });
         const ie = document.getElementById('sysprompt-editor');
@@ -1216,7 +1216,7 @@ window.addEventListener('message', event => {
       hydrateTrailSession(trailSession, { resetLoadedConfigs: true });
       // Update bitácora and trail instructions for the new/switched trail
       const bdEl = document.getElementById('bitacora-display');
-      if (bdEl) bdEl.textContent = trailSession.bitacora || '(No bitácora yet)';
+      if (bdEl) bdEl.innerHTML = renderMarkdownLatex(trailSession.bitacora || '*(No bitácora yet)*');
       const ieEl = document.getElementById('sysprompt-editor');
       if (ieEl) ieEl.value = trailSession.additionalInstructions || '';
       updateSyspromptSparks();

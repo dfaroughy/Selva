@@ -372,7 +372,7 @@ async function runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userProm
       '--output-format', 'json',
       '--json-schema', JSON.stringify(CELL_EDIT_RESULT_SCHEMA),
       '--no-session-persistence',
-      '--permission-mode', 'dontAsk',
+      '--permission-mode', 'askFirst',
       '--tools', '',
       '--strict-mcp-config',
       '--mcp-config', '{"mcpServers":{}}',

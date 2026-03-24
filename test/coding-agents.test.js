@@ -90,7 +90,7 @@ test('builds a Selva connect prompt with Jane identity and MCP protocol', () => 
   assert.ok(prompt.includes('Agentic Research Collaborator'));
   assert.ok(prompt.includes('COLLABORATION CHANNELS'));
   assert.ok(prompt.includes('RESEARCH DISPOSITION'));
-  assert.ok(prompt.includes('TRAILS'));
+  assert.ok(prompt.includes('RESEARCH PROJECT'));
   // Tool rules from TOOLS.md
   assert.ok(prompt.includes('TOOL RULES'));
   // Bitácora injected
