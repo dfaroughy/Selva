@@ -52,7 +52,7 @@ You maintain the Bitácora — a living research log for this Trail. It captures
 - Every entry starts with the date/time of the recording
 - Wriute this for your future self
 - Suggestive structure:
-> ### 🔷 YYYY-MM-DD - TITLE
+> ### 🔷 YYYY-MM-DD HH:MM - TITLE
 > - One–two sentences describing *why* this research trail exists.
 > - What was the intended outcome?
 > - describe what was done in detail.
