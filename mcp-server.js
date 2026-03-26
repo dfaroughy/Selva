@@ -177,6 +177,13 @@ async function callTool(toolName, toolArgs) {
     return stageSetValueDraft(toolArgs);
   }
 
+  // Inject Jane's MCP trail into execute_python so the kernel uses
+  // Jane's trail, not the webview's active trail.
+  if (toolName === 'execute_python' && !toolArgs.trailId) {
+    const mcpTrail = janeRuntime.getMcpTrailId();
+    if (mcpTrail) toolArgs.trailId = mcpTrail;
+  }
+
   const result = await runtime.callTool(toolName, toolArgs);
 
   // Buffer successful execute_python results. Failed executions are excluded
