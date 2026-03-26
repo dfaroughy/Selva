@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const {
@@ -90,7 +92,7 @@ test('builds a Selva connect prompt with Jane identity and MCP protocol', () => 
   assert.ok(prompt.includes('Agentic Research Collaborator'));
   assert.ok(prompt.includes('COLLABORATION CHANNELS'));
   assert.ok(prompt.includes('RESEARCH DISPOSITION'));
-  assert.ok(prompt.includes('TRAILS'));
+  assert.ok(prompt.includes('RESEARCH PROJECT'));
   // Tool rules from TOOLS.md
   assert.ok(prompt.includes('TOOL RULES'));
   // Bitácora injected
@@ -213,11 +215,21 @@ test('builds a workspace .mcp.json payload that preserves other servers', () => 
 });
 
 test('resolves agent binaries from extension-relative paths', () => {
+  // Find an actually installed Claude Code extension
+  const extDir = path.join(os.homedir(), '.vscode', 'extensions');
+  let claudeExt = '';
+  try {
+    const entries = fs.readdirSync(extDir);
+    claudeExt = entries.find((e) => e.startsWith('anthropic.claude-code-')) || '';
+  } catch {}
+  if (!claudeExt) {
+    // Skip if not installed — test is environment-dependent
+    return;
+  }
   const claude = resolveAgentBinaryPath({
-    extensionPath: '/Users/dario/.vscode/extensions/anthropic.claude-code-2.1.76-darwin-arm64',
+    extensionPath: path.join(extDir, claudeExt),
     binaryRelativePaths: ['resources/native-binary/claude'],
   });
-
   assert.ok(claude.endsWith('/resources/native-binary/claude'));
 });
 

@@ -89,17 +89,17 @@
           <div class="sysprompt-columns">
             <div class="sysprompt-col">
               <div class="sysprompt-header">
-                <span class="sysprompt-title">Trail Instructions</span>
+                <span class="sysprompt-title">Instructions</span>
                 <button class="btn sysprompt-reset-btn" id="sysprompt-reset" title="Clear">Clear</button>
               </div>
               <textarea id="sysprompt-editor" spellcheck="false" placeholder="Standing instructions for Jane on this trail."></textarea>
             </div>
             <div class="sysprompt-col">
               <div class="sysprompt-header">
-                <span class="sysprompt-title">Bitácora</span>
+                <span class="sysprompt-title">Research LOG</span>
                 <span class="sysprompt-hint">read-only</span>
               </div>
-              <div id="bitacora-display" class="bitacora-display"></div>
+              <div id="bitacora-display" class="bitacora-display rich-text"></div>
             </div>
           </div>
         </div>
@@ -355,19 +355,6 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-section-title">API Keys (direct, no Copilot)</div>
-      <div class="sp-row">
-        <span class="sp-label">Anthropic</span>
-        <input type="password" class="sp-input" id="set-anthropic-key" placeholder="sk-ant-..." autocomplete="off">
-      </div>
-      <div class="sp-row">
-        <span class="sp-label">OpenAI</span>
-        <input type="password" class="sp-input" id="set-openai-key" placeholder="sk-..." autocomplete="off">
-      </div>
-      <p class="sp-hint">Keys are stored locally. Direct API models appear in the agent dropdown.</p>
     </div>
 
     <div class="sp-section">

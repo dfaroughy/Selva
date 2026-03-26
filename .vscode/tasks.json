@@ -1,0 +1,5 @@
+{
+  "label": "clean-test-workspace",
+  "type": "shell",
+  "command": "rm -rf ~/.claude/projects/-Users-dario-Dropbox-PROJECTS-Agentic-recast && rm -rf ~/Dropbox/PROJECTS/Agentic_recast/.selva/trails/*"
+}

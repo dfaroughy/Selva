@@ -5,17 +5,10 @@ async function handleSettingsOp(msg, ctx) {
     panel,
     janeRuntime,
     context,
-    apiKeys,
-    sendModelList,
-    listCodingAgents,
     connectCodingAgent,
   } = ctx;
 
   switch (msg.type) {
-    case 'listModels': {
-      sendModelList(panel);
-      break;
-    }
     case 'connectCodingAgent': {
       try {
         const result = await connectCodingAgent({
@@ -54,17 +47,6 @@ async function handleSettingsOp(msg, ctx) {
     case 'setAgentModel':
     case 'janeSessionSetModel': {
       janeRuntime.setSessionModel(msg.modelId || '');
-      break;
-    }
-    case 'setApiKey': {
-      if (msg.provider === 'anthropic') apiKeys.anthropic = msg.key || '';
-      else if (msg.provider === 'openai') apiKeys.openai = msg.key || '';
-      if (msg.key) {
-        context.secrets.store('apiKey:' + msg.provider, msg.key);
-      } else {
-        context.secrets.delete('apiKey:' + msg.provider);
-      }
-      sendModelList(panel);
       break;
     }
     case 'saveProjectPrompt': {

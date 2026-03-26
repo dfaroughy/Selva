@@ -1013,16 +1013,11 @@ window.addEventListener('message', event => {
         const prev = vscode.getState() || {};
         vscode.setState({ ...prev, pinned: state.pinned });
       }
-      // Show masked API keys in settings
-      if (msg.apiKeys) {
-        if (msg.apiKeys.anthropic) document.getElementById('set-anthropic-key').placeholder = msg.apiKeys.anthropic;
-        if (msg.apiKeys.openai) document.getElementById('set-openai-key').placeholder = msg.apiKeys.openai;
-      }
       // Restore trail instructions and bitácora
       const instrEditor = document.getElementById('sysprompt-editor');
       if (instrEditor) instrEditor.value = msg.additionalInstructions || '';
       const bitacoraDisplay = document.getElementById('bitacora-display');
-      if (bitacoraDisplay) bitacoraDisplay.textContent = msg.bitacora || '(No bitácora yet — will be generated during bootstrap)';
+      if (bitacoraDisplay) bitacoraDisplay.innerHTML = renderMarkdownLatex(msg.bitacora || '*(No bitácora yet)*');
       const ppEditor = document.getElementById('project-prompt-editor');
       if (ppEditor) ppEditor.value = msg.projectPrompt || '';
       const session = msg.session || {};
@@ -1140,19 +1135,6 @@ window.addEventListener('message', event => {
       updateTokenDisplay();
       break;
     }
-    case 'availableModels': {
-      state.availableModels = (msg.models || []).filter(m =>
-        !/^copilotcli/i.test(m.vendor) && !/^copilotcli/i.test(m.id)
-      );
-      if (!state.agentModelId || !state.availableModels.find(m => m.id === state.agentModelId)) {
-        // Prefer gpt-4.1 as default, then gpt-4o, fallback to first available
-        const preferred = state.availableModels.find(m => /gpt-4\.1/i.test(m.family) || /gpt-4\.1/i.test(m.id))
-          || state.availableModels.find(m => /gpt-4o/i.test(m.family) || /gpt-4o/i.test(m.id));
-        state.agentModelId = preferred ? preferred.id : (state.availableModels.length > 0 ? state.availableModels[0].id : '');
-      }
-      updateAgentModelLabel();
-      break;
-    }
     case 'codingAgentConnected': {
       const label = msg.agent && msg.agent.label ? msg.agent.label : 'Coding agent';
       if (msg.launchMode === 'terminal') {
@@ -1185,7 +1167,7 @@ window.addEventListener('message', event => {
       // Refresh bitácora display
       const syncSession = msg.session || {};
       const bd = document.getElementById('bitacora-display');
-      if (bd) bd.textContent = syncSession.bitacora || '(No bitácora yet)';
+      if (bd) bd.innerHTML = renderMarkdownLatex(syncSession.bitacora || '*(No bitácora yet)*');
       if (trailChanged) {
         hydrateTrailSession(syncSession, { resetLoadedConfigs: true });
         const ie = document.getElementById('sysprompt-editor');
@@ -1216,7 +1198,7 @@ window.addEventListener('message', event => {
       hydrateTrailSession(trailSession, { resetLoadedConfigs: true });
       // Update bitácora and trail instructions for the new/switched trail
       const bdEl = document.getElementById('bitacora-display');
-      if (bdEl) bdEl.textContent = trailSession.bitacora || '(No bitácora yet)';
+      if (bdEl) bdEl.innerHTML = renderMarkdownLatex(trailSession.bitacora || '*(No bitácora yet)*');
       const ieEl = document.getElementById('sysprompt-editor');
       if (ieEl) ieEl.value = trailSession.additionalInstructions || '';
       updateSyspromptSparks();
@@ -1530,17 +1512,6 @@ document.getElementById('set-autoexpand').addEventListener('change', onSettingCh
 document.getElementById('set-sortkeys').addEventListener('change', onSettingChange);
 document.getElementById('set-sliders').addEventListener('change', onSettingChange);
 document.getElementById('set-notebook').addEventListener('change', onSettingChange);
-
-// ── API key listeners (sent to extension for secure storage) ──
-document.getElementById('set-anthropic-key').addEventListener('change', e => {
-  vscode.postMessage({ type: 'setApiKey', provider: 'anthropic', key: e.target.value.trim() });
-  // Refresh model list to include direct models
-  vscode.postMessage({ type: 'listModels' });
-});
-document.getElementById('set-openai-key').addEventListener('change', e => {
-  vscode.postMessage({ type: 'setApiKey', provider: 'openai', key: e.target.value.trim() });
-  vscode.postMessage({ type: 'listModels' });
-});
 
 document.getElementById('save-defaults-btn').addEventListener('click', saveAsUserDefault);
 document.getElementById('reset-defaults-btn').addEventListener('click', resetToFactoryDefault);
