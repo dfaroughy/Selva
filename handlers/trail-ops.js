@@ -14,9 +14,7 @@ async function handleTrailOp(msg, ctx) {
     folderName,
     janeRuntime,
     context,
-    apiKeys,
     findYamlFiles,
-    sendModelList,
     updatePanelTitle,
     listCodingAgents,
     suppressLocalSessionSync,
@@ -32,10 +30,6 @@ async function handleTrailOp(msg, ctx) {
       const pinnedFields = context.workspaceState.get(pinnedKey, {});
       const projectPromptKey = 'projectPrompt:' + configDir;
       const projectPrompt = context.workspaceState.get(projectPromptKey, '');
-      const maskedKeys = {
-        anthropic: apiKeys.anthropic ? '••••' + apiKeys.anthropic.slice(-4) : '',
-        openai: apiKeys.openai ? '••••' + apiKeys.openai.slice(-4) : '',
-      };
       const codingAgents = await listCodingAgents();
       let defaultPromptTemplate = '';
       try {
@@ -65,7 +59,6 @@ async function handleTrailOp(msg, ctx) {
         userDefaultSettings,
         pinnedFields,
         defaultPromptTemplate,
-        apiKeys: maskedKeys,
         additionalInstructions: janeSession.additionalInstructions || '',
         bitacora: janeSession.bitacora || '',
         projectPrompt,
@@ -75,7 +68,6 @@ async function handleTrailOp(msg, ctx) {
         codingAgents,
         defaultCodingAgentId: pickDefaultCodingAgentId(codingAgents),
       });
-      sendModelList(panel);
       const initTools = loadAllTools(context.extensionPath);
       const webviewTools = initTools
         .filter(t => t.context === 'webview')

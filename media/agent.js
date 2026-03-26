@@ -246,8 +246,6 @@ function showModelPicker() {
   const existing = document.getElementById('agent-model-menu');
   if (existing) { existing.remove(); return; }
 
-  vscode.postMessage({ type: 'listModels' });
-
   const models = state.availableModels.filter(m =>
     !/^copilotcli/i.test(m.vendor) && !/^copilotcli/i.test(m.id)
   );

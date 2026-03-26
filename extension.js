@@ -46,9 +46,6 @@ const CELL_EDIT_AGENT_TIMEOUT_MS = 180000;
 
 const os = require('os');
 
-// ── API key storage (in-memory per session) ────────────────
-const apiKeys = { anthropic: '', openai: '' };
-
 async function listCodingAgents() {
   const extensions = vscode.extensions.all.map((extension) => ({
     id: extension.id,
@@ -425,36 +422,6 @@ async function runCodexCellEdit({ binaryPath, configDir, systemPrompt, userPromp
   }
 }
 
-async function runExternalCellEditOnce({
-  agentId,
-  code,
-  instruction,
-  output,
-  configDir,
-  sessionInstructions,
-}) {
-  const { agent, binaryPath } = await resolveRequestedCodingAgent(agentId);
-  const cellDebuggerModel = pickCellDebuggerModel(agent.id);
-  const systemPrompt = buildCellEditSystemPrompt({ sessionInstructions });
-  const shouldIncludeOutput = looksLikeCellExecutionError(output);
-  const userPrompt = buildCellEditUserPrompt({
-    instruction,
-    code,
-    output: shouldIncludeOutput ? output : '',
-    attempt: 1,
-    maxAttempts: 1,
-  });
-
-  const response = agent.id === 'codex'
-    ? await runCodexCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel })
-    : await runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId: cellDebuggerModel });
-
-  return {
-    agent,
-    code: response.code || '',
-  };
-}
-
 async function runExternalCellEditWithRetries({
   agentId,
   code,
@@ -780,7 +747,6 @@ function activate(context) {
         folderName,
         janeRuntime,
         context,
-        apiKeys,
         yaml,
         activeTokenSources,
         execFileAsync,
