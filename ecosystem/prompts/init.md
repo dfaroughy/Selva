@@ -12,9 +12,6 @@ Use setFileType for every file:
 - "data": datasets, measurements, results, tables of numerical values, experimental output
 Do not skip any file.
 
-── STEP 3: LOCK DATA FILES ──
-Use lockAllInFile for each file classified as "data".
-
 ── STEP 4: SET SLIDER BOUNDS ──
 For numeric fields in config files, set sensible ranges based on context:
 - Learning rates, weight decay → log scale, e.g. [1e-6, 1]

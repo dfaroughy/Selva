@@ -77,6 +77,9 @@
       <div class="dash-panel-body">
         <div class="project-panel-body">
           <canvas id="trail-graph" width="600" height="200"></canvas>
+          <div class="project-export-row">
+            <button class="editor-export-btn" id="export-project-btn"><svg class="nb-export-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="1" width="12" height="14" rx="1.5"/><path d="M5 4.5h6M5 7.5h6M5 10.5h4"/></svg> Export Project</button>
+          </div>
           <div id="project-prompt-panel" class="project-prompt-panel hidden">
             <div class="sysprompt-header">
               <span class="sysprompt-title">Project Prompt</span>
@@ -123,6 +126,7 @@
             <div id="notebook-add-menu" class="hidden">
               <button class="btn notebook-add-option" data-cell-type="markdown">Markdown</button>
               <button class="btn notebook-add-option" data-cell-type="python">Python</button>
+              <button class="btn notebook-add-option" data-cell-type="mathjax">MathJax</button>
             </div>
           </div>
           <span class="notebook-toolbar-sep"></span>
@@ -380,6 +384,8 @@
   <script nonce="{{NONCE}}">mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'strict' });</script>
   <script nonce="{{NONCE}}" src="{{MARKED_URI}}"></script>
   <script nonce="{{NONCE}}" src="{{KATEX_URI}}"></script>
+  <script nonce="{{NONCE}}">window.MathJax = { tex: { inlineMath: [['$','$']], displayMath: [['$$','$$']] }, chtml: { fontURL: '{{MATHJAX_FONTS_URI}}' }, startup: { typeset: false } };</script>
+  <script nonce="{{NONCE}}" src="{{MATHJAX_URI}}"></script>
   <script nonce="{{NONCE}}" src="{{UTILS_URI}}"></script>
   <script nonce="{{NONCE}}" src="{{STATE_URI}}"></script>
   <script nonce="{{NONCE}}" src="{{SLIDERS_URI}}"></script>

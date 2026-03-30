@@ -195,11 +195,11 @@ function createTerminalLaunchScript({ agent, binaryPath, configDir, startupPromp
   if (agent.id === 'claude-code') {
     const mcpConfigPath = path.join(configDir, '.mcp.json');
     scriptLines.push(
-      `${shellQuote(binaryPath)} --permission-mode dontAsk --allowedTools mcp__selva --mcp-config ${shellQuote(mcpConfigPath)} -- "$PROMPT_CONTENT"`
+      `${shellQuote(binaryPath)} --permission-mode acceptEdits --allowedTools mcp__selva --mcp-config ${shellQuote(mcpConfigPath)} -- "$PROMPT_CONTENT"`
     );
   } else if (agent.id === 'codex') {
     scriptLines.push(
-      `${shellQuote(binaryPath)} -C ${shellQuote(configDir)} "$PROMPT_CONTENT"`
+      `${shellQuote(binaryPath)} --full-auto -C ${shellQuote(configDir)} "$PROMPT_CONTENT"`
     );
   } else {
     scriptLines.push(`${shellQuote(binaryPath)} "$PROMPT_CONTENT"`);
@@ -644,6 +644,8 @@ function activate(context) {
       const mermaidUri  = vendorUri('mermaid.min.js');
       const markedUri   = vendorUri('marked.min.js');
       const katexUri    = vendorUri('katex.min.js');
+      const mathjaxUri  = vendorUri('mathjax-tex-chtml.js');
+      const mathjaxFontsUri = vendorUri('mathjax-fonts');
       const utilsUri    = mediaUri('utils.js');
       const stateUri   = mediaUri('state.js');
       const slidersUri = mediaUri('sliders.js');
@@ -674,6 +676,8 @@ function activate(context) {
         .replace('{{MERMAID_URI}}',  mermaidUri.toString())
         .replace('{{MARKED_URI}}',   markedUri.toString())
         .replace('{{KATEX_URI}}',    katexUri.toString())
+        .replace('{{MATHJAX_URI}}', mathjaxUri.toString())
+        .replace('{{MATHJAX_FONTS_URI}}', mathjaxFontsUri.toString())
         .replace('{{UTILS_URI}}',    utilsUri.toString())
         .replace('{{STATE_URI}}',    stateUri.toString())
         .replace('{{SLIDERS_URI}}',  slidersUri.toString())
@@ -702,15 +706,23 @@ function activate(context) {
       }
 
       // ── File watcher (auto-reload on external changes, e.g. MCP) ──
+      let _lastKnownFiles = findYamlFiles(configDir, configDir);
       const watcher = fs.watch(configDir, { recursive: true }, (eventType, filename) => {
         if (!filename || !/\.ya?ml$/i.test(filename)) return;
         // Debounce: ignore rapid successive events
         if (watcher._debounce) clearTimeout(watcher._debounce);
         watcher._debounce = setTimeout(() => {
           try {
+            // Check if the file list changed (new or deleted YAML files)
+            const currentFiles = findYamlFiles(configDir, configDir);
+            if (JSON.stringify(currentFiles) !== JSON.stringify(_lastKnownFiles)) {
+              _lastKnownFiles = currentFiles;
+              panel.webview.postMessage({ type: 'filesUpdated', files: currentFiles });
+            }
             const filePath = path.resolve(configDir, filename);
             const safeBase = path.resolve(configDir) + path.sep;
             if (!filePath.startsWith(safeBase)) return;
+            if (!fs.existsSync(filePath)) return; // file was deleted
             const raw = fs.readFileSync(filePath, 'utf8');
             const docs = yaml.loadAll(raw);
             const docKey = docs.length === 1 ? null : filename.replace(/\.ya?ml$/i, '');
@@ -763,7 +775,7 @@ function activate(context) {
       const TRAIL_OPS = new Set([
         'init', 'ackExternalDrafts', 'persistSessionEntries',
         'janeTrailNew', 'janeTrailFork', 'janeTrailSwitch', 'janeTrailRename', 'janeTrailDelete',
-        'exportNotebook',
+        'exportNotebook', 'exportProject',
       ]);
       const AGENT_OPS = new Set([
         'editCellCode', 'abortAgent',

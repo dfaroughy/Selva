@@ -1091,6 +1091,28 @@ window.addEventListener('message', event => {
       }
       break;
     }
+    case 'filesUpdated': {
+      // New or deleted YAML files detected by the file watcher
+      const newFiles = msg.files || [];
+      const added = newFiles.filter(f => !state.files.includes(f));
+      const removed = state.files.filter(f => !newFiles.includes(f));
+      state.files = newFiles;
+      // Clean up removed files
+      for (const f of removed) {
+        delete state.configs[f];
+        delete state.fileTypes[f];
+      }
+      // Request data for new files
+      for (const f of added) {
+        vscode.postMessage({ type: 'readConfig', filename: f });
+      }
+      if (added.length || removed.length) {
+        renderTabs();
+        renderEditors();
+        if (added.length) toast(added.length + ' new file' + (added.length > 1 ? 's' : '') + ' detected', 'info');
+      }
+      break;
+    }
     case 'writeResult': {
       const saveBtn = document.getElementById('save-btn');
       if (msg.success) {
@@ -1235,6 +1257,14 @@ window.addEventListener('message', event => {
         toast('Exported ' + (msg.filename || 'notebook'), 'success');
       } else if (msg.error) {
         toast('Export failed: ' + msg.error, 'error');
+      }
+      break;
+    }
+    case 'exportProjectResult': {
+      if (msg.ok) {
+        toast('Project exported to ' + (msg.filename || 'report.html'), 'success');
+      } else if (msg.error) {
+        toast('Project export failed: ' + msg.error, 'error');
       }
       break;
     }
@@ -1656,6 +1686,12 @@ const exportPyBtn = document.getElementById('export-py-btn');
 if (exportPyBtn) {
   exportPyBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'exportNotebook', format: 'py' });
+  });
+}
+const exportProjectBtn = document.getElementById('export-project-btn');
+if (exportProjectBtn) {
+  exportProjectBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'exportProject' });
   });
 }
 

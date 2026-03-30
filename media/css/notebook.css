@@ -599,6 +599,54 @@ a.agent-link:hover { opacity: 0.8; }
 .nb-markdown .nb-cell-body:not(.md-body-expanded):not(.md-body-short):hover::before {
   opacity: 0.7;
 }
+/* MathJax cell */
+.nb-mathjax {
+  border-color: var(--border);
+  background: transparent;
+  position: relative;
+}
+.nb-mathjax:hover {
+  border-color: var(--border);
+  background: var(--bg-1);
+}
+.nb-mathjax:hover .nb-md-dots { opacity: 0.5; }
+.nb-mathjax .mathjax-output {
+  padding: 10px 12px;
+  cursor: pointer;
+  overflow-x: auto;
+  text-align: center;
+  color: var(--text-0);
+}
+.nb-mathjax .mathjax-output svg {
+  max-width: 100%;
+  height: auto;
+}
+.nb-mathjax .mathjax-output .katex-display { margin: 4px 0; }
+.nb-mathjax .mathjax-empty {
+  color: var(--text-2);
+  font-style: italic;
+  font-size: 11px;
+}
+.nb-mathjax .mathjax-error {
+  color: #f78166;
+  font-family: var(--font-badge);
+  font-size: 10px;
+  white-space: pre-wrap;
+}
+.nb-mathjax-editor {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-family: var(--font-badge);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  resize: vertical;
+  border-radius: var(--radius);
+}
+.nb-mathjax-editor.hidden { display: none; }
 /* Python cell: In/Out gutter in left margin, selection = left border */
 .nb-cells {
   margin-left: 20px;

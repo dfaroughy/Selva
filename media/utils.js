@@ -210,6 +210,44 @@ function renderMarkdownLatex(text) {
   return html;
 }
 
+// ── Pure LaTeX rendering (for MathJax cells) ──────────────
+// Uses MathJax CHTML output — renders to DOM nodes, not strings.
+// Call with a target element: renderLatexBlock appends directly to it.
+// Returns an HTML string fallback for cases where direct DOM isn't possible.
+function renderLatexBlock(source, targetEl) {
+  const text = String(source || '').trim();
+  if (!text) {
+    if (targetEl) targetEl.innerHTML = '<span class="mathjax-empty">Empty MathJax cell</span>';
+    return '<span class="mathjax-empty">Empty MathJax cell</span>';
+  }
+  // MathJax 3 loads asynchronously — tex2chtml may not be ready yet.
+  if (typeof MathJax === 'undefined' || !MathJax.tex2chtml) {
+    const placeholder = `<pre class="mathjax-pending" style="font-size:11px;color:var(--text-2);white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+    if (targetEl) {
+      targetEl.innerHTML = placeholder;
+      if (typeof MathJax !== 'undefined' && MathJax.startup) {
+        MathJax.startup.promise.then(() => renderLatexBlock(text, targetEl));
+      }
+    }
+    return placeholder;
+  }
+  try {
+    const node = MathJax.tex2chtml(text, { display: true });
+    if (targetEl) {
+      targetEl.innerHTML = '';
+      targetEl.appendChild(node);
+      // Inject MathJax adaptive stylesheet if not already present
+      MathJax.startup.document.clear();
+      MathJax.startup.document.updateDocument();
+    }
+    return node.outerHTML;
+  } catch (e) {
+    const errHtml = `<span class="mathjax-error">${escapeHtml(e.message || 'Render error')}</span>`;
+    if (targetEl) targetEl.innerHTML = errHtml;
+    return errHtml;
+  }
+}
+
 // ── Python syntax highlighting (GitHub-dark style) ────────
 function highlightPython(code) {
   const keywords = /\b(and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|True|False|None)\b/g;

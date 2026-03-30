@@ -6,6 +6,7 @@ const {
 } = require('../lib/session-store');
 const { loadAllTools } = require('../lib/selva-runtime');
 const { exportToIpynb, exportToPython } = require('../lib/notebook-export');
+const { exportProjectToHtml } = require('../lib/project-export');
 
 async function handleTrailOp(msg, ctx) {
   const {
@@ -209,6 +210,29 @@ async function handleTrailOp(msg, ctx) {
         }
       } catch (err) {
         panel.webview.postMessage({ type: 'exportNotebookResult', ok: false, error: err.message });
+      }
+      break;
+    }
+    case 'exportProject': {
+      const vscodeApi = ctx.vscode;
+      const projectName = path.basename(configDir);
+      const projectPromptKey = 'projectPrompt:' + configDir;
+      const projectPrompt = context.workspaceState.get(projectPromptKey, '');
+      try {
+        const html = exportProjectToHtml(configDir, { projectName, projectPrompt });
+        const defaultUri = vscodeApi.Uri.file(path.join(configDir, projectName + '_report.html'));
+        const uri = await vscodeApi.window.showSaveDialog({
+          defaultUri,
+          filters: { 'HTML': ['html'] },
+          title: 'Export Research Project',
+        });
+        if (uri) {
+          fs.writeFileSync(uri.fsPath, html, 'utf8');
+          panel.webview.postMessage({ type: 'exportProjectResult', ok: true, filename: path.basename(uri.fsPath) });
+          vscodeApi.window.showInformationMessage(`Project exported to ${path.basename(uri.fsPath)}`);
+        }
+      } catch (err) {
+        panel.webview.postMessage({ type: 'exportProjectResult', ok: false, error: err.message });
       }
       break;
     }

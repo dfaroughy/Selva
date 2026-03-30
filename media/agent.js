@@ -521,6 +521,10 @@ function serializeNotebookCell(cell) {
     const editor = cell.querySelector('.nb-md-editor');
     return { id: cellId, type: 'markdown', content: editor ? editor.value : '', ...prov };
   }
+  if (type === 'mathjax') {
+    const editor = cell.querySelector('.nb-mathjax-editor');
+    return { id: cellId, type: 'mathjax', content: editor ? editor.value : '', ...prov };
+  }
   if (type === 'python') {
     const codeArea = cell._cmEditor || cell.querySelector('.py-cell-input');
     const output = cell.querySelector('.nb-output');
@@ -791,6 +795,105 @@ function buildCell(block) {
     // Start markdown cells fully expanded
     rendered.classList.add('md-body-expanded');
     _checkMdHeight();
+    if (startEditing) {
+      requestAnimationFrame(() => {
+        editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+        editor.focus();
+      });
+    }
+    return cell;
+  }
+
+  // ── MathJax cell ───────────────────────────────────
+  if (kind === 'mathjax') {
+    const startEditing = !!block.startEditing;
+    const source = block.content || '';
+
+    // Rendered output (shown by default)
+    const rendered = document.createElement('div');
+    rendered.className = 'nb-cell-body mathjax-output';
+    if (startEditing) rendered.classList.add('hidden');
+    renderLatexBlock(source, rendered);
+    cell.appendChild(rendered);
+
+    // Raw LaTeX editor (hidden by default)
+    const editor = document.createElement('textarea');
+    editor.className = 'nb-mathjax-editor' + (startEditing ? '' : ' hidden');
+    editor.value = source;
+    editor.spellcheck = false;
+    editor.placeholder = '\\begin{array}{l|rr}\n\\textbf{Col1} & \\textbf{Col2} \\\\\n\\hline\n\\text{row} & 42 \\\\\n\\end{array}';
+    editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+    cell.appendChild(editor);
+
+    let editMode = startEditing;
+    function enterEditMode() {
+      if (editMode) return;
+      editMode = true;
+      rendered.classList.add('hidden');
+      editor.classList.remove('hidden');
+      editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+      editor.focus();
+    }
+    function exitEditMode() {
+      if (!editMode) return;
+      editMode = false;
+      renderLatexBlock(editor.value, rendered);
+      rendered.classList.remove('hidden');
+      editor.classList.add('hidden');
+      scheduleNotebookSessionPersist();
+    }
+
+    // Click to edit
+    rendered.addEventListener('click', () => enterEditMode());
+
+    // Gutter menu (three dots)
+    const menuWrap = document.createElement('div');
+    menuWrap.className = 'nb-md-menu-wrap';
+    const dots = document.createElement('button');
+    dots.className = 'nb-md-dots';
+    dots.innerHTML = '&#8943;';
+    dots.title = 'Actions';
+    const dropdown = document.createElement('div');
+    dropdown.className = 'nb-md-dropdown hidden';
+    dropdown.innerHTML =
+      `<button class="nb-md-dropdown-item nb-md-delete" title="Delete">${CELL_CLOSE_SVG}</button>` +
+      `<button class="nb-md-dropdown-item nb-md-copy" title="Copy">${CELL_COPY_SVG}</button>`;
+    menuWrap.appendChild(dots);
+    menuWrap.appendChild(dropdown);
+    cell.appendChild(menuWrap);
+
+    dots.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('hidden');
+    });
+    dropdown.querySelector('.nb-md-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.add('hidden');
+      cell.remove();
+      flushNotebookSessionPersist();
+    });
+    dropdown.querySelector('.nb-md-copy').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.add('hidden');
+      navigator.clipboard.writeText(editor.value).then(() => toast('Copied'));
+    });
+    document.addEventListener('click', () => dropdown.classList.add('hidden'));
+
+    // Shift+Enter or Escape → exit edit mode (re-render)
+    editor.addEventListener('keydown', (e) => {
+      if ((e.shiftKey && e.key === 'Enter') || e.key === 'Escape') {
+        e.preventDefault();
+        exitEditMode();
+      }
+    });
+    editor.addEventListener('input', () => {
+      editor.rows = Math.max(3, editor.value.split('\n').length + 1);
+      cell.dataset.editedBy = 'human';
+      cell.dataset.editedAt = new Date().toISOString();
+      scheduleNotebookSessionPersist();
+    });
+    editor.addEventListener('blur', () => exitEditMode());
+
     if (startEditing) {
       requestAnimationFrame(() => {
         editor.rows = Math.max(3, editor.value.split('\n').length + 1);
@@ -1396,9 +1499,9 @@ function ensureNotebookTailEntry() {
 }
 
 function createManualNotebookCellModel(kind) {
-  return kind === 'python'
-    ? { type: 'python', lang: 'python', code: '', output: '', runState: 'pending', expanded: true }
-    : { type: 'markdown', content: '', startEditing: true };
+  if (kind === 'python') return { type: 'python', lang: 'python', code: '', output: '', runState: 'pending', expanded: true };
+  if (kind === 'mathjax') return { type: 'mathjax', content: '', startEditing: true };
+  return { type: 'markdown', content: '', startEditing: true };
 }
 
 function focusNotebookCell(cell) {

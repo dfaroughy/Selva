@@ -1,3 +1,10 @@
+/* ── Project export button ───────────────────────── */
+.project-export-row {
+  display: flex;
+  padding: 6px 14px;
+  gap: 8px;
+}
+
 /* ── System prompt editor ────────────────────────── */
 #agent-sysprompt-panel {
   background: var(--bg-1);
