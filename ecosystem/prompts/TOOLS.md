@@ -4,7 +4,8 @@
 - "path" = JSON array of keys/indices, e.g. ["training", "lr"]. Never use dot notation.
 - All "type":"array" in inputSchema must include "items": {}.
 - setValue preserves types (number→number, bool→bool). "reduce by 3" = divide by 3.
-- Ambiguous field in multiple files? Prefer the active config/data file.
+- Ambiguous field in multiple files? Prefer the currently active file.
+- setFileType categories are flexible — use whatever grouping fits the workspace (e.g. "config", "data", "model", "experiment", "results"). Keep categories broad; if a file doesn't fit neatly, use "misc".
 
 ─── DATA HYGIENE ───
 

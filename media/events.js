@@ -146,18 +146,13 @@ function applySessionSnapshot(session) {
   state.lockedFields = new Set(Array.isArray(dashboard.lockedFields) ? dashboard.lockedFields : []);
   state.pinned = deepClone(dashboard.pinnedFields || {});
 
-  const configFiles = state.files.filter((file) => state.fileTypes[file] !== 'data');
-  const dataFiles = state.files.filter((file) => state.fileTypes[file] === 'data');
-
-  const requestedConfig = dashboard.activeConfigFile || null;
-  const requestedData = dashboard.activeDataFile || null;
-  state.activeConfigFile = requestedConfig && configFiles.includes(requestedConfig)
-    ? requestedConfig
-    : (configFiles[0] || null);
-  state.activeDataFile = requestedData && dataFiles.includes(requestedData)
-    ? requestedData
-    : (dataFiles[0] || null);
-  state.activeFile = state.activeConfigFile || state.activeDataFile || state.activeFile || null;
+  // Select first file as active if none set
+  const requestedActive = dashboard.activeConfigFile || dashboard.activeDataFile || null;
+  state.activeFile = requestedActive && state.files.includes(requestedActive)
+    ? requestedActive
+    : (state.files[0] || null);
+  state.activeConfigFile = state.activeFile;
+  state.activeDataFile = null;
 
   updateTokenDisplay();
   const prev = vscode.getState() || {};
@@ -208,8 +203,6 @@ function rebuildChatLogFromSession(options = {}) {
 }
 
 function renderDashboardFromSession() {
-  const dataFiles = state.files.filter((file) => state.fileTypes[file] === 'data');
-  document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
   renderTabs();
   renderEditors();
   renderPinnedBar();
@@ -767,16 +760,10 @@ function finalizeHydratedSession() {
     const ops = state._bootstrapRestore.ops || [];
     if (ops.length > 0) executeOps(ops);
     state._bootstrapRestored = true;
-    const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
-    const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
-    if (!state.activeConfigFile || state.fileTypes[state.activeConfigFile] === 'data') {
-      state.activeConfigFile = configFiles[0] || null;
+    if (!state.activeFile || !state.files.includes(state.activeFile)) {
+      state.activeFile = state.files[0] || null;
+      state.activeConfigFile = state.activeFile;
     }
-    if (!state.activeDataFile && dataFiles.length > 0) {
-      state.activeDataFile = dataFiles[0];
-    }
-    state.activeFile = state.activeConfigFile || state.activeDataFile || state.activeFile;
-    document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
     renderTabs();
     renderEditors();
     renderPinnedBar();
@@ -857,9 +844,6 @@ function applyPendingExternalDrafts() {
   updateButtons();
   updateAgentModelLabel();
 
-  const hasData = state.files.some((file) => state.fileTypes[file] === 'data');
-  document.getElementById('data-panel').classList.toggle('hidden', !hasData);
-
   if (appliedIds.length > 0) {
     vscode.postMessage({ type: 'ackExternalDrafts', ids: appliedIds });
   }
@@ -877,22 +861,10 @@ function handleBootstrapResultMessage(msg) {
     executeOps(ops);
   }
 
-  const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
-  const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
-
-  if (state.activeConfigFile && state.fileTypes[state.activeConfigFile] === 'data') {
-    state.activeDataFile = state.activeConfigFile;
-    state.activeConfigFile = null;
+  if (!state.activeFile || !state.files.includes(state.activeFile)) {
+    state.activeFile = state.files[0] || null;
+    state.activeConfigFile = state.activeFile;
   }
-  if (!state.activeConfigFile || state.fileTypes[state.activeConfigFile] === 'data') {
-    state.activeConfigFile = configFiles[0] || null;
-  }
-  state.activeFile = state.activeConfigFile || state.activeDataFile;
-  if (!state.activeDataFile && dataFiles.length > 0) {
-    state.activeDataFile = dataFiles[0];
-  }
-
-  document.getElementById('data-panel').classList.toggle('hidden', dataFiles.length === 0);
   renderTabs();
   renderEditors();
   renderPinnedBar();
@@ -986,8 +958,6 @@ function handleAgentResultMessage(msg) {
   renderPinnedBar();
   updateButtons();
 
-  const hasData = state.files.some(f => state.fileTypes[f] === 'data');
-  document.getElementById('data-panel').classList.toggle('hidden', !hasData);
 }
 
 // ── Message handler from extension host ────────────────────
@@ -1045,9 +1015,7 @@ window.addEventListener('message', event => {
         raw: msg.raw || '',
         dirty: false,
       };
-      if (state.fileTypes[msg.filename] === 'data') {
-        lockAllFieldsInFile(msg.filename);
-      }
+      // All files are editable — no auto-lock
       applyPendingExternalDrafts();
       // Check if this completes the bootstrap loading phase
       if (state._bootstrapPending && state._bootstrapPending.has(msg.filename)) {
@@ -1078,12 +1046,7 @@ window.addEventListener('message', event => {
         }
       } else {
         state.activeFile = msg.filename;
-        const isData = state.fileTypes[msg.filename] === 'data';
-        if (isData) {
-          state.activeDataFile = msg.filename;
-        } else {
-          state.activeConfigFile = msg.filename;
-        }
+        state.activeConfigFile = msg.filename;
         renderTabs();
         renderEditors();
         updateButtons();
@@ -1339,7 +1302,7 @@ document.getElementById('file-tabs').addEventListener('click', e => {
   if (!tab) return;
   const panel = tab.closest('.dash-panel');
   const filename = tab.dataset.filename;
-  const isActive = filename === state.activeConfigFile;
+  const isActive = filename === state.activeFile;
   if (panel && panel.classList.contains('collapsed')) {
     panel.classList.remove('collapsed');
     selectFile(filename);
@@ -1351,24 +1314,6 @@ document.getElementById('file-tabs').addEventListener('click', e => {
   }
   selectFile(filename);
 });
-document.getElementById('data-tabs').addEventListener('click', e => {
-  const tab = e.target.closest('[data-filename]');
-  if (!tab) return;
-  const panel = tab.closest('.dash-panel');
-  const filename = tab.dataset.filename;
-  const isActive = filename === state.activeDataFile;
-  if (panel && panel.classList.contains('collapsed')) {
-    panel.classList.remove('collapsed');
-    selectFile(filename);
-    return;
-  }
-  if (panel && isActive) {
-    panel.classList.add('collapsed');
-    return;
-  }
-  selectFile(filename);
-});
-
 // ── Event delegation: theme swatches ──────────────────────
 document.getElementById('theme-swatches').addEventListener('click', e => {
   const swatch = e.target.closest('[data-theme]');
@@ -1434,7 +1379,7 @@ document.getElementById('pinned-bar').addEventListener('input', e => {
   const mod = !valEqual(val, getNestedValue(state.configs[file].original, path));
   t.classList.toggle('pin-modified', mod);
   t.closest('.pin-row').classList.toggle('pin-modified', mod);
-  if (file === state.activeConfigFile || file === state.activeDataFile) {
+  if (file === state.activeFile) {
     const fid = state.pathToFid[file + ':' + pathKey(path)];
     if (fid) {
       const inp = document.getElementById(fid);
@@ -1455,7 +1400,7 @@ document.getElementById('pinned-bar').addEventListener('change', e => {
     if (!state.configs[file]) return;
     setNestedValue(state.configs[file].current, path, t.checked);
     state.configs[file].dirty = true;
-    if (file === state.activeConfigFile || file === state.activeDataFile) {
+    if (file === state.activeFile) {
       const fid = state.pathToFid[file + ':' + pathKey(path)];
       if (fid) refreshFieldState(fid);
       updateButtons(); renderTabs();
@@ -1757,8 +1702,8 @@ function init() {
   updateNotebookComposerVisibility();
   loadPinned();
   document.getElementById('pinned-panel-title').innerHTML = PIN_ICON_SVG + ' pinned';
-  document.getElementById('config-panel-title').innerHTML = YAML_ICON_SVG + ' configs';
-  document.getElementById('data-panel-title').innerHTML = DATA_ICON_SVG + ' data';
+  const filesPanelTitle = document.getElementById('files-panel-title');
+  if (filesPanelTitle) filesPanelTitle.innerHTML = YAML_ICON_SVG + ' files';
   document.getElementById('pinned-panel').classList.add('hidden');
   vscode.postMessage({ type: 'init' });
 }

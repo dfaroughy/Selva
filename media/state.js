@@ -78,8 +78,8 @@ const state = {
   files: [],
   configs: {},
   activeFile: null,
-  activeConfigFile: null,
-  activeDataFile: null,
+  activeConfigFile: null,   // kept for backward compat with backend-ops
+  activeDataFile: null,     // kept for backward compat with backend-ops
   fieldMap: {},
   fieldCounter: 0,
   pinned: {},

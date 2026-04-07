@@ -698,7 +698,7 @@ function activate(context) {
           const relPath  = path.relative(base, fullPath);
           if (entry.isDirectory()) {
             results.push(...findYamlFiles(fullPath, base));
-          } else if (entry.isFile() && /\.ya?ml$/.test(entry.name)) {
+          } else if (entry.isFile() && /\.(ya?ml|json)$/i.test(entry.name)) {
             results.push(relPath);
           }
         }
@@ -708,7 +708,7 @@ function activate(context) {
       // ── File watcher (auto-reload on external changes, e.g. MCP) ──
       let _lastKnownFiles = findYamlFiles(configDir, configDir);
       const watcher = fs.watch(configDir, { recursive: true }, (eventType, filename) => {
-        if (!filename || !/\.ya?ml$/i.test(filename)) return;
+        if (!filename || !/\.(ya?ml|json)$/i.test(filename)) return;
         // Debounce: ignore rapid successive events
         if (watcher._debounce) clearTimeout(watcher._debounce);
         watcher._debounce = setTimeout(() => {
@@ -724,9 +724,14 @@ function activate(context) {
             if (!filePath.startsWith(safeBase)) return;
             if (!fs.existsSync(filePath)) return; // file was deleted
             const raw = fs.readFileSync(filePath, 'utf8');
-            const docs = yaml.loadAll(raw);
-            const docKey = docs.length === 1 ? null : filename.replace(/\.ya?ml$/i, '');
-            const parsed = docKey ? { [docKey]: docs } : docs[0];
+            let parsed;
+            if (/\.json$/i.test(filename)) {
+              parsed = JSON.parse(raw);
+            } else {
+              const docs = yaml.loadAll(raw);
+              const docKey = docs.length === 1 ? null : filename.replace(/\.ya?ml$/i, '');
+              parsed = docKey ? { [docKey]: docs } : docs[0];
+            }
             panel.webview.postMessage({ type: 'configData', filename, raw, parsed, external: true });
           } catch { /* file may be mid-write */ }
         }, 300);

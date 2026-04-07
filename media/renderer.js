@@ -4,50 +4,56 @@ function selectFile(filename) {
     vscode.postMessage({ type: 'readConfig', filename });
     return;
   }
+  if (state.activeFile === filename) { renderTabs(); return; }
   state.activeFile = filename;
-  const isData = state.fileTypes[filename] === 'data';
-  if (isData) {
-    if (state.activeDataFile === filename) { renderTabs(); return; } // already selected
-    state.activeDataFile = filename;
-    renderTabs();
-    renderEditorInto('data-editor', filename);
-  } else {
-    if (state.activeConfigFile === filename) { renderTabs(); return; } // already selected
-    state.activeConfigFile = filename;
-    renderTabs();
-    renderEditorInto('config-editor', filename);
-  }
+  // Keep legacy fields in sync for backend-ops
+  const cat = state.fileTypes[filename] || 'files';
+  if (cat === 'data') state.activeDataFile = filename;
+  else state.activeConfigFile = filename;
+  renderTabs();
+  renderEditorInto('files-editor', filename);
   updateButtons();
   updateAgentModelLabel();
 }
 
-// ── Tabs ───────────────────────────────────────────────────
+// ── Tabs (grouped by category) ────────────────────────────
 function renderTabs() {
   const nav = document.getElementById('file-tabs');
-  const dataNav = document.getElementById('data-tabs');
+  if (!nav) return;
 
-  const configFiles = state.files.filter(f => state.fileTypes[f] !== 'data');
-  const dataFiles = state.files.filter(f => state.fileTypes[f] === 'data');
+  // Group files by category
+  const categories = {};
+  for (const f of state.files) {
+    const cat = state.fileTypes[f] || 'files';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(f);
+  }
 
-  const configPrefix = commonPrefix(configFiles.map(f => f.replace(/\.ya?ml$/, '')));
-  nav.innerHTML = configFiles.map(f => {
-    const isActive = f === state.activeConfigFile;
-    const modified = state.configs[f] && isModified(f);
-    let label = f.replace(/\.ya?ml$/, '').replace(/ /g, '_');
-    if (configPrefix.length > 0) label = label.slice(configPrefix.length) || label;
-    return `<button class="tab${isActive ? ' active' : ''}" data-filename="${escapeHtml(f)}">${escapeHtml(label)}${modified ? '<span class="dot"></span>' : ''}</button>`;
-  }).join('');
-
-  if (dataFiles.length > 0) {
-    const dataPrefix = commonPrefix(dataFiles.map(f => f.replace(/\.ya?ml$/, '')));
-    dataNav.innerHTML = dataFiles.map(f => {
-      const isActive = f === state.activeDataFile;
+  // Build tab HTML: category labels + file tabs
+  const catNames = Object.keys(categories).sort();
+  let html = '';
+  for (const cat of catNames) {
+    const files = categories[cat];
+    if (catNames.length > 1) {
+      html += `<span class="tab-category-label">${escapeHtml(cat)}</span>`;
+    }
+    const prefix = commonPrefix(files.map(f => f.replace(/\.ya?ml$/, '')));
+    for (const f of files) {
+      const isActive = f === state.activeFile;
+      const modified = state.configs[f] && isModified(f);
       let label = f.replace(/\.ya?ml$/, '').replace(/ /g, '_');
-      if (dataPrefix.length > 0) label = label.slice(dataPrefix.length) || label;
-      return `<button class="tab${isActive ? ' active' : ''}" data-filename="${escapeHtml(f)}">${escapeHtml(label)}</button>`;
-    }).join('');
-  } else {
-    dataNav.innerHTML = '';
+      if (prefix.length > 0) label = label.slice(prefix.length) || label;
+      html += `<button class="tab${isActive ? ' active' : ''}" data-filename="${escapeHtml(f)}">${escapeHtml(label)}${modified ? '<span class="dot"></span>' : ''}</button>`;
+    }
+  }
+  nav.innerHTML = html;
+
+  // Update panel title with category count
+  const titleEl = document.getElementById('files-panel-title');
+  if (titleEl) {
+    titleEl.textContent = catNames.length > 1
+      ? catNames.join(' · ')
+      : (catNames[0] || 'files');
   }
 }
 
@@ -70,8 +76,7 @@ function renderEditors() {
   state.fieldCounter = 0;
   state.pathToFid = {};
 
-  renderEditorInto('config-editor', state.activeConfigFile);
-  renderEditorInto('data-editor', state.activeDataFile);
+  renderEditorInto('files-editor', state.activeFile);
 
   const hasPinned = Object.values(state.pinned).some(paths => paths.length > 0);
   document.getElementById('pinned-panel').classList.toggle('hidden', !hasPinned);
@@ -137,8 +142,7 @@ function renderEditorInto(elementId, filename) {
   if (!main) return;
   const config = filename ? state.configs[filename] : null;
   if (!config) {
-    const isData = elementId === 'data-editor';
-    main.innerHTML = `<div class="empty-state"><p>${isData ? 'No data files were found' : 'No config files were found'}</p></div>`;
+    main.innerHTML = `<div class="empty-state"><p>Select a file tab above</p></div>`;
     return;
   }
 
@@ -549,7 +553,7 @@ function toggleSectionDeep(sectionEl) {
 }
 
 function refreshSectionDeepButtons() {
-  document.querySelectorAll('#config-editor > .section, #data-editor > .section').forEach(sectionEl => {
+  document.querySelectorAll('#files-editor > .section').forEach(sectionEl => {
     const btn = sectionEl.querySelector(':scope > .section-header > .section-collapse-btn');
     if (!btn) return;
     const nested = sectionEl.querySelectorAll('.section');
@@ -566,7 +570,7 @@ function applySectionHeights() {
 // ── Search / filter ────────────────────────────────────────
 function applySearch() {
   const query = document.getElementById('search').value.toLowerCase().trim();
-  const editors = [document.getElementById('config-editor'), document.getElementById('data-editor')];
+  const editors = [document.getElementById('files-editor')];
   if (!query) {
     editors.forEach(ed => {
       if (!ed) return;

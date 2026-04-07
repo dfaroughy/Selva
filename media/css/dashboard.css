@@ -69,8 +69,7 @@ nav#data-tabs {
   margin-left: 4px;
 }
 nav#file-tabs::-webkit-scrollbar,
-nav#data-tabs::-webkit-scrollbar { display: none; }
-nav#data-tabs:empty { display: none; }
+/* data-tabs removed — single unified file nav */
 .tab-yaml-icon {
   display: inline-flex;
   align-items: center;
@@ -114,6 +113,17 @@ nav#data-tabs:empty { display: none; }
   display: inline-block;
   margin-left: 6px;
   vertical-align: middle;
+}
+
+/* Category labels in file tabs */
+.tab-category-label {
+  font-family: var(--font-badge);
+  font-size: 9px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 6px 2px;
+  opacity: 0.6;
 }
 
 /* ── Editor area ─────────────────────────────────── */

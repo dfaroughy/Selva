@@ -1,6 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
+function isJsonFile(filename) {
+  return /\.json$/i.test(String(filename || ''));
+}
+
 function handleFileOp(msg, ctx) {
   const { configDir, panel, yaml } = ctx;
 
@@ -13,10 +17,15 @@ function handleFileOp(msg, ctx) {
           panel.webview.postMessage({ type: 'configData', error: 'Invalid path' });
           return;
         }
-        const raw    = fs.readFileSync(filePath, 'utf8');
-        const docs   = yaml.loadAll(raw);
-        const docKey = docs.length === 1 ? null : msg.filename.replace(/\.ya?ml$/i, '');
-        const parsed = docKey ? { [docKey]: docs } : docs[0];
+        const raw = fs.readFileSync(filePath, 'utf8');
+        let parsed;
+        if (isJsonFile(msg.filename)) {
+          parsed = JSON.parse(raw);
+        } else {
+          const docs = yaml.loadAll(raw);
+          const docKey = docs.length === 1 ? null : msg.filename.replace(/\.ya?ml$/i, '');
+          parsed = docKey ? { [docKey]: docs } : docs[0];
+        }
         panel.webview.postMessage({ type: 'configData', filename: msg.filename, raw, parsed });
       } catch (e) {
         panel.webview.postMessage({ type: 'configData', error: e.message });
@@ -32,11 +41,15 @@ function handleFileOp(msg, ctx) {
           return;
         }
         let output;
-        const docKey = msg.filename.replace(/\.ya?ml$/i, '');
-        if (msg.data && Array.isArray(msg.data[docKey])) {
-          output = msg.data[docKey].map(d => yaml.dump(d, { flowLevel: -1, sortKeys: false })).join('---\n');
+        if (isJsonFile(msg.filename)) {
+          output = JSON.stringify(msg.data, null, 2);
         } else {
-          output = yaml.dump(msg.data, { flowLevel: -1, sortKeys: false });
+          const docKey = msg.filename.replace(/\.ya?ml$/i, '');
+          if (msg.data && Array.isArray(msg.data[docKey])) {
+            output = msg.data[docKey].map(d => yaml.dump(d, { flowLevel: -1, sortKeys: false })).join('---\n');
+          } else {
+            output = yaml.dump(msg.data, { flowLevel: -1, sortKeys: false });
+          }
         }
         fs.writeFileSync(filePath, output, 'utf8');
         panel.webview.postMessage({ type: 'writeResult', success: true, filename: msg.filename });
@@ -53,7 +66,9 @@ function handleFileOp(msg, ctx) {
           panel.webview.postMessage({ type: 'exportJsonResult', error: 'Invalid path' });
           return;
         }
-        const jsonFilename = msg.filename.replace(/\.ya?ml$/i, '.json');
+        const jsonFilename = isJsonFile(msg.filename)
+          ? msg.filename
+          : msg.filename.replace(/\.ya?ml$/i, '.json');
         const jsonPath = path.resolve(configDir, jsonFilename);
         fs.writeFileSync(jsonPath, JSON.stringify(msg.data, null, 2), 'utf8');
         panel.webview.postMessage({ type: 'exportJsonResult', success: true, jsonFilename });
