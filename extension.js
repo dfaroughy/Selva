@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const yaml = require('./vendor/js-yaml.min.js');
-const { handleTrailOp } = require('./handlers/trail-ops');
+const { handleTaskOp } = require('./handlers/task-ops');
 const { handleAgentOp } = require('./handlers/agent-ops');
 const { handleFileOp } = require('./handlers/file-ops');
 const { handleKernelOp } = require('./handlers/kernel-ops');
@@ -18,7 +18,7 @@ const {
 } = require('./lib/selva-runtime');
 const { createJaneRuntime } = require('./lib/jane-runtime');
 const {
-  getTrailsDir,
+  getTasksDir,
   setPanelState,
 } = require('./lib/session-store');
 const {
@@ -352,10 +352,10 @@ function formatCliFailure(error) {
   return message || 'Unknown coding agent failure';
 }
 
-function updatePanelTitle(panel, folderName, trailName) {
+function updatePanelTitle(panel, folderName, taskName) {
   const safeFolder = folderName || 'Selva';
-  const safeTrail = String(trailName || '').trim();
-  panel.title = safeTrail ? `${safeFolder} · ${safeTrail}` : safeFolder;
+  const safeTask = String(taskName || '').trim();
+  panel.title = safeTask ? `${safeFolder} · ${safeTask}` : safeFolder;
 }
 
 async function runClaudeCellEdit({ binaryPath, configDir, systemPrompt, userPrompt, modelId = '' }) {
@@ -431,7 +431,7 @@ async function runExternalCellEditWithRetries({
   configDir,
   sessionInstructions,
   panel,
-  trailId,
+  taskId,
 }) {
   const { agent, binaryPath } = await resolveRequestedCodingAgent(agentId);
   const cellDebuggerModel = pickCellDebuggerModel(agent.id);
@@ -472,7 +472,7 @@ async function runExternalCellEditWithRetries({
       extensionPath: __dirname,
       execFileAsync,
       panel,
-      trailId,
+      taskId,
     });
 
     if (!looksLikeCellExecutionError(latestValidationOutput)) {
@@ -513,15 +513,15 @@ async function connectCodingAgent({ agentId, janeRuntime }) {
     initPayload,
     extensionPath: __dirname,
     bitacora: session.bitacora || '',
-    trailInstructions: session.additionalInstructions || '',
+    taskInstructions: session.additionalInstructions || '',
   });
-  // Save the connect prompt to the trail folder for inspection
+  // Save the connect prompt to the task folder for inspection
   try {
-    const trailId = session.trailId || '';
-    if (trailId) {
-      const trailDir = path.join(getTrailsDir(configDir), trailId);
-      fs.mkdirSync(trailDir, { recursive: true });
-      fs.writeFileSync(path.join(trailDir, 'LAST_PROMPT.md'), startupPrompt, 'utf8');
+    const taskId = session.taskId || '';
+    if (taskId) {
+      const taskDir = path.join(getTasksDir(configDir), taskId);
+      fs.mkdirSync(taskDir, { recursive: true });
+      fs.writeFileSync(path.join(taskDir, 'LAST_PROMPT.md'), startupPrompt, 'utf8');
     }
   } catch {}
 
@@ -599,8 +599,8 @@ function activate(context) {
       const folderName = path.basename(configDir).replace(/ /g, '_');
       const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath: context.extensionPath });
       const janeRuntime = createJaneRuntime({ configDir, extensionPath: context.extensionPath, workspaceRuntime });
-      const trailsDir = getTrailsDir(configDir);
-      const initialTrailState = janeRuntime.listTrails();
+      const tasksDir = getTasksDir(configDir);
+      const initialTaskState = janeRuntime.listTasks();
 
       const panel = vscode.window.createWebviewPanel(
         'configDashboard',
@@ -617,7 +617,7 @@ function activate(context) {
       );
 
       panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'logo_2D.png');
-      updatePanelTitle(panel, folderName, initialTrailState.activeTrail && initialTrailState.activeTrail.name);
+      updatePanelTitle(panel, folderName, initialTaskState.activeTask && initialTaskState.activeTask.name);
       panels.set(configDir, panel);
       setPanelState(configDir, { open: true });
       panel.onDidDispose(() => {
@@ -736,17 +736,17 @@ function activate(context) {
           } catch { /* file may be mid-write */ }
         }, 300);
       });
-      const sessionWatcher = fs.watch(trailsDir, { recursive: true }, () => {
+      const sessionWatcher = fs.watch(tasksDir, { recursive: true }, () => {
         if (sessionWatcher._debounce) clearTimeout(sessionWatcher._debounce);
         sessionWatcher._debounce = setTimeout(() => {
           try {
             if ((localSessionSyncSuppressUntil.get(configDir) || 0) > Date.now()) return;
-            const trailState = janeRuntime.listTrails();
-            updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
+            const taskState = janeRuntime.listTasks();
+            updatePanelTitle(panel, folderName, taskState.activeTask && taskState.activeTask.name);
             panel.webview.postMessage({
               type: 'janeSessionSync',
               session: janeRuntime.getSession(),
-              trailState,
+              taskState,
             });
           } catch { /* session may be mid-write */ }
         }, 120);
@@ -777,9 +777,9 @@ function activate(context) {
         runExternalCellEditWithRetries,
       };
 
-      const TRAIL_OPS = new Set([
+      const TASK_OPS = new Set([
         'init', 'ackExternalDrafts', 'persistSessionEntries',
-        'janeTrailNew', 'janeTrailFork', 'janeTrailSwitch', 'janeTrailRename', 'janeTrailDelete',
+        'janeTaskNew', 'janeTaskFork', 'janeTaskSwitch', 'janeTaskRename', 'janeTaskDelete',
         'exportNotebook', 'exportProject',
       ]);
       const AGENT_OPS = new Set([
@@ -789,7 +789,7 @@ function activate(context) {
       const KERNEL_OPS = new Set(['executeCell', 'getKernelStatus', 'kernelControl']);
 
       panel.webview.onDidReceiveMessage(async (msg) => {
-        if (TRAIL_OPS.has(msg.type)) return handleTrailOp(msg, handlerCtx);
+        if (TASK_OPS.has(msg.type)) return handleTaskOp(msg, handlerCtx);
         if (AGENT_OPS.has(msg.type)) return handleAgentOp(msg, handlerCtx);
         if (FILE_OPS.has(msg.type)) return handleFileOp(msg, handlerCtx);
         if (KERNEL_OPS.has(msg.type)) return handleKernelOp(msg, handlerCtx);

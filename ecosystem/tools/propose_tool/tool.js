@@ -62,7 +62,7 @@ module.exports = async function(input, context) {
   // Write tool.js
   fs.writeFileSync(path.join(jungleDir, 'tool.js'), toolCode, 'utf8');
 
-  // Update tools.lock (audit trail)
+  // Update tools.lock (audit task)
   const lockPath = path.join(os.homedir(), '.selva', 'ecosystem', 'tools.lock');
   let lock = {};
   try { lock = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch { /* new */ }

@@ -177,11 +177,11 @@ async function callTool(toolName, toolArgs) {
     return stageSetValueDraft(toolArgs);
   }
 
-  // Inject Jane's MCP trail into execute_python so the kernel uses
-  // Jane's trail, not the webview's active trail.
-  if (toolName === 'execute_python' && !toolArgs.trailId) {
-    const mcpTrail = janeRuntime.getMcpTrailId();
-    if (mcpTrail) toolArgs.trailId = mcpTrail;
+  // Inject Jane's MCP task into execute_python so the kernel uses
+  // Jane's task, not the webview's active task.
+  if (toolName === 'execute_python' && !toolArgs.taskId) {
+    const mcpTask = janeRuntime.getMcpTaskId();
+    if (mcpTask) toolArgs.taskId = mcpTask;
   }
 
   const result = await runtime.callTool(toolName, toolArgs);

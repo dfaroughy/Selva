@@ -31,7 +31,7 @@ function cleanup(configDir) {
 
 console.log('\n\x1b[1mNotebook Execution\x1b[0m');
 
-test('python notebook execution preserves state within the same trail kernel', async () => {
+test('python notebook execution preserves state within the same task kernel', async () => {
   const configDir = mkTmpDir();
   try {
     const first = await executeNotebookCell({
@@ -39,7 +39,7 @@ test('python notebook execution preserves state within the same trail kernel', a
       code: 'value = 2',
       configDir,
       extensionPath,
-      trailId: 'trail_a',
+      taskId: 'task_a',
     });
     assert.strictEqual(String(first).trim(), '(no output)');
 
@@ -48,7 +48,7 @@ test('python notebook execution preserves state within the same trail kernel', a
       code: 'value + 3',
       configDir,
       extensionPath,
-      trailId: 'trail_a',
+      taskId: 'task_a',
     });
     assert.strictEqual(String(second).trim(), '5');
   } finally {
@@ -56,7 +56,7 @@ test('python notebook execution preserves state within the same trail kernel', a
   }
 });
 
-test('python notebook execution isolates state between trails', async () => {
+test('python notebook execution isolates state between tasks', async () => {
   const configDir = mkTmpDir();
   try {
     await executeNotebookCell({
@@ -64,7 +64,7 @@ test('python notebook execution isolates state between trails', async () => {
       code: 'shared_value = 9',
       configDir,
       extensionPath,
-      trailId: 'trail_one',
+      taskId: 'task_one',
     });
 
     const isolated = await executeNotebookCell({
@@ -72,7 +72,7 @@ test('python notebook execution isolates state between trails', async () => {
       code: "'shared_value' in globals()",
       configDir,
       extensionPath,
-      trailId: 'trail_two',
+      taskId: 'task_two',
     });
     assert.strictEqual(String(isolated).trim(), 'False');
   } finally {

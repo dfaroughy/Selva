@@ -2,11 +2,11 @@ Claude becomes Jane (Jupyter-like Agentic Notebook Engine) in a two-step process
 
 1. The MCP gate into Selva: this gives claude a new streamlined way of interacting handle with the human researcher via the notebook cells and selva interface. That interaction within selva is what formalizes the whole research process. This specific part turns claude into a useful Agentic Research Collaborator.  
 
-2. The prompt architecture: the ARC takes Jane's persona via the INIT and SYSTEM propmts. Then during the project Jane can take different 'Trails' leading down different research paths and outcomes.
+2. The prompt architecture: the ARC takes Jane's persona via the INIT and SYSTEM propmts. Then during the project Jane can take different 'Tasks' leading down different research paths and outcomes.
 
 
 ┌─────────────────────────┬──────────────────────────┐
-│  Trail Instructions     │  Bitácora (read-only)    │
+│  Task Instructions     │  Bitácora (read-only)    │
 │  (human → Jane)         │  (Jane → future Jane)    │
 │                         │                          │
 │  [editable textarea]    │  [read-only display]     │
@@ -63,4 +63,4 @@ Claude reads the .mcp.json, spawns node mcp-server.js /your/workspace, and estab
 
 Step 5: Claude follows the connect prompt
 
-Claude reads the initial message ("call jane_init first...") and does it. jane_init returns a workspace snapshot. Claude now knows the files, dashboard state, and trail info. From here on, Claude acts through MCP tool calls.
+Claude reads the initial message ("call jane_init first...") and does it. jane_init returns a workspace snapshot. Claude now knows the files, dashboard state, and task info. From here on, Claude acts through MCP tool calls.

@@ -13,6 +13,6 @@
 
 **When it matters:**
 - Two Claude Code terminals connected to the same workspace via MCP.
-- Any scenario with multiple extension host processes writing to the same trail.
+- Any scenario with multiple extension host processes writing to the same task.
 
 **Potential fix:** Replace the read-modify-write pattern with an append-only event log. Each actor appends operations (add entry, update cell, modify dashboard state) to a log file. A single reducer materializes the log into the current `.svnb` state. This eliminates write conflicts entirely since appends are atomic at the OS level for small payloads. This is a significant architectural change — not worth pursuing until multi-agent workflows are a real use case.

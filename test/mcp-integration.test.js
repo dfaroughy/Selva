@@ -115,7 +115,7 @@ test('MCP server lists tools including workspace and Jane tools', async () => {
     assert.ok(toolNames.includes('read_config'), 'should include read_config');
     assert.ok(toolNames.includes('set_value'), 'should include set_value');
     assert.ok(toolNames.includes('jane_init'), 'should include jane_init');
-    assert.ok(toolNames.includes('jane_trail_list'), 'should include jane_trail_list');
+    assert.ok(toolNames.includes('jane_task_list'), 'should include jane_task_list');
   } finally {
     server.kill();
     cleanup(configDir);

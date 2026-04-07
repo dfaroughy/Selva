@@ -1057,7 +1057,7 @@ function buildCell(block) {
           requestId,
           cellId,
           language: getNotebookCellLanguage(cell),
-          trailId: state.activeTrailId || '',
+          taskId: state.activeTaskId || '',
           code: cell._cmEditor ? cell._cmEditor.getValue() : (cell.querySelector('.py-cell-input') || {}).value || '',
           instruction,
           output: looksLikeCellExecutionErrorText((cell.querySelector('.nb-output') || {}).dataset?.rawResult || '')
@@ -1326,7 +1326,7 @@ function buildCell(block) {
       cell.dataset.runState = 'running';
       setNotebookKernelStatus({
         language: getNotebookCellLanguage(cell),
-        trailId: state.activeTrailId || '',
+        taskId: state.activeTaskId || '',
         started: true,
         state: 'busy',
       });
@@ -1342,7 +1342,7 @@ function buildCell(block) {
         cellId,
         code: currentCode,
         language: getNotebookCellLanguage(cell),
-        trailId: state.activeTrailId || '',
+        taskId: state.activeTaskId || '',
       });
     });
 
@@ -1593,10 +1593,10 @@ function updateNotebookKernelToolbar() {
   const bar = document.getElementById('notebook-kernel-toolbar');
   const pill = document.getElementById('notebook-kernel-pill');
   const label = document.getElementById('notebook-kernel-status');
-  const trailName = document.getElementById('notebook-trail-name');
+  const taskName = document.getElementById('notebook-task-name');
   const interruptBtn = document.getElementById('notebook-kernel-interrupt-btn');
   const restartBtn = document.getElementById('notebook-kernel-restart-btn');
-  if (!pill || !label || !trailName) return;
+  if (!pill || !label || !taskName) return;
 
   const notebookHidden = settings.notebookMode === false;
   if (bar) bar.classList.toggle('hidden', notebookHidden);
@@ -1605,7 +1605,7 @@ function updateNotebookKernelToolbar() {
   const kernelState = normalizeNotebookKernelState((state.kernelStatus || {}).state);
   pill.className = `notebook-kernel-pill kernel-${kernelState}`;
   label.textContent = getNotebookKernelLabel(kernelState);
-  trailName.textContent = state.activeTrailName || '--';
+  taskName.textContent = state.activeTaskName || '--';
 
   if (interruptBtn) interruptBtn.disabled = kernelState !== 'busy';
   if (restartBtn) restartBtn.disabled = kernelState === 'starting';
@@ -1614,7 +1614,7 @@ function updateNotebookKernelToolbar() {
 function requestNotebookKernelStatus() {
   vscode.postMessage({
     type: 'getKernelStatus',
-    trailId: state.activeTrailId || '',
+    taskId: state.activeTaskId || '',
     language: 'python',
   });
 }

@@ -161,7 +161,7 @@ function applySessionSnapshot(session) {
 
 function rebuildChatLogFromSession(options = {}) {
   // Flush pending DOM edits before rebuilding — but only when the rebuild
-  // is user-initiated (trail switch, manual refresh). When the rebuild is
+  // is user-initiated (task switch, manual refresh). When the rebuild is
   // triggered by janeSessionSync (external MCP write), the disk state is
   // authoritative and a flush would overwrite it with stale DOM content.
   if (!options.external) {
@@ -210,28 +210,28 @@ function renderDashboardFromSession() {
   updateAgentModelLabel();
 }
 
-function updateTrailControls() {
-  // Trail controls are now managed via the trail graph canvas
+function updateTaskControls() {
+  // Task controls are now managed via the task graph canvas
 }
 
-function applyTrailStatePayload(trails, activeTrail) {
-  state.trails = Array.isArray(trails) ? trails.slice() : [];
-  state.activeTrailId = activeTrail && activeTrail.id ? activeTrail.id : '';
-  state.activeTrailName = activeTrail && activeTrail.name ? activeTrail.name : '';
-  state.activeTrailPath = activeTrail && activeTrail.path ? activeTrail.path : '';
-  updateTrailControls();
-  renderTrailGraph();
+function applyTaskStatePayload(tasks, activeTask) {
+  state.tasks = Array.isArray(tasks) ? tasks.slice() : [];
+  state.activeTaskId = activeTask && activeTask.id ? activeTask.id : '';
+  state.activeTaskName = activeTask && activeTask.name ? activeTask.name : '';
+  state.activeTaskPath = activeTask && activeTask.path ? activeTask.path : '';
+  updateTaskControls();
+  renderTaskGraph();
 }
 
-// ── Trail graph (interactive canvas) ─────────────────────
-let _trailGraphHover = null;
+// ── Task graph (interactive canvas) ─────────────────────
+let _taskGraphHover = null;
 let _projectNodeSelected = false;
-let _dragNode = null;       // { type: 'project'|'trail', id?, offsetX, offsetY }
-const _userPositions = {};  // trailId → { x, y } — persists user-dragged positions
+let _dragNode = null;       // { type: 'project'|'task', id?, offsetX, offsetY }
+const _userPositions = {};  // taskId → { x, y } — persists user-dragged positions
 let _projectUserPos = null; // { x, y } — persists dragged project node position
 
-function renderTrailGraph() {
-  const canvas = document.getElementById('trail-graph');
+function renderTaskGraph() {
+  const canvas = document.getElementById('task-graph');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -243,7 +243,7 @@ function renderTrailGraph() {
   const H = rect.height;
   ctx.clearRect(0, 0, W, H);
 
-  const trails = Array.isArray(state.trails) ? state.trails : [];
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
 
   const style = getComputedStyle(document.documentElement);
   const accent = style.getPropertyValue('--accent').trim() || '#4ec080';
@@ -258,58 +258,58 @@ function renderTrailGraph() {
   const projectX = _projectUserPos ? _projectUserPos.x : 60;
   const projectY = _projectUserPos ? _projectUserPos.y : H / 2;
 
-  // Layout trail nodes in a vertical spread to the right of the project
+  // Layout task nodes in a vertical spread to the right of the project
   const nodes = [];
-  const trailStartX = 180;
-  const spacing = Math.min(40, (H - 40) / Math.max(trails.length, 1));
-  const startY = H / 2 - ((trails.length - 1) * spacing) / 2;
+  const taskStartX = 180;
+  const spacing = Math.min(40, (H - 40) / Math.max(tasks.length, 1));
+  const startY = H / 2 - ((tasks.length - 1) * spacing) / 2;
 
   // Build parent→children map for fork offsets
   const childrenOf = {};
-  for (const trail of trails) {
-    const pid = trail.parentTrailId || '';
+  for (const task of tasks) {
+    const pid = task.parentTaskId || '';
     if (pid) {
       if (!childrenOf[pid]) childrenOf[pid] = [];
-      childrenOf[pid].push(trail.id);
+      childrenOf[pid].push(task.id);
     }
   }
 
   // Position nodes in two passes: roots first, then forks (so parents exist before children)
   const nodeMap = {};
-  const parentIds = new Set(trails.filter(t => t.parentTrailId).map(t => t.parentTrailId));
-  const rootTrails = trails.filter(t => !t.parentTrailId || !parentIds.has(t.parentTrailId) && !trails.some(p => p.id === t.parentTrailId));
-  const forkTrails = trails.filter(t => t.parentTrailId && trails.some(p => p.id === t.parentTrailId));
+  const parentIds = new Set(tasks.filter(t => t.parentTaskId).map(t => t.parentTaskId));
+  const rootTasks = tasks.filter(t => !t.parentTaskId || !parentIds.has(t.parentTaskId) && !tasks.some(p => p.id === t.parentTaskId));
+  const forkTasks = tasks.filter(t => t.parentTaskId && tasks.some(p => p.id === t.parentTaskId));
 
-  // Pass 1: place root trails (no parent or parent not in trail list)
+  // Pass 1: place root tasks (no parent or parent not in task list)
   let yIdx = 0;
-  for (const trail of rootTrails) {
-    const x = trailStartX;
+  for (const task of rootTasks) {
+    const x = taskStartX;
     const y = startY + yIdx * spacing;
     yIdx++;
-    const node = { id: trail.id, name: trail.name || 'Trail', x, y, trail, isFork: false };
+    const node = { id: task.id, name: task.name || 'Task', x, y, task, isFork: false };
     nodes.push(node);
-    nodeMap[trail.id] = node;
+    nodeMap[task.id] = node;
   }
 
   // Pass 2: place forks with repulsion (parent guaranteed to be positioned)
   const forkSpacing = Math.max(spacing, 30); // minimum 30px between fork siblings
   const placeForks = (parentList) => {
-    for (const trail of parentList) {
-      if (nodeMap[trail.id]) continue;
-      const parent = nodeMap[trail.parentTrailId];
+    for (const task of parentList) {
+      if (nodeMap[task.id]) continue;
+      const parent = nodeMap[task.parentTaskId];
       if (!parent) continue;
-      const siblings = childrenOf[trail.parentTrailId] || [];
-      const sibIdx = siblings.indexOf(trail.id);
+      const siblings = childrenOf[task.parentTaskId] || [];
+      const sibIdx = siblings.indexOf(task.id);
       const x = parent.x + 100;
       const y = parent.y + (sibIdx - (siblings.length - 1) / 2) * forkSpacing;
-      const node = { id: trail.id, name: trail.name || 'Trail', x, y, trail, isFork: true };
+      const node = { id: task.id, name: task.name || 'Task', x, y, task, isFork: true };
       nodes.push(node);
-      nodeMap[trail.id] = node;
+      nodeMap[task.id] = node;
     }
   };
   // Iterate until all forks are placed (handles multi-level forks)
-  for (let pass = 0; pass < 5 && forkTrails.some(t => !nodeMap[t.id]); pass++) {
-    placeForks(forkTrails);
+  for (let pass = 0; pass < 5 && forkTasks.some(t => !nodeMap[t.id]); pass++) {
+    placeForks(forkTasks);
   }
 
   // Apply user-dragged positions (overrides auto-layout)
@@ -322,15 +322,15 @@ function renderTrailGraph() {
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = border;
   for (const node of nodes) {
-    if (node.isFork && nodeMap[node.trail.parentTrailId]) {
+    if (node.isFork && nodeMap[node.task.parentTaskId]) {
       // Fork edge: parent → child
-      const parent = nodeMap[node.trail.parentTrailId];
+      const parent = nodeMap[node.task.parentTaskId];
       ctx.beginPath();
       ctx.moveTo(parent.x, parent.y);
       ctx.lineTo(node.x, node.y);
       ctx.stroke();
     } else {
-      // Root edge: project → trail
+      // Root edge: project → task
       ctx.beginPath();
       ctx.moveTo(projectX, projectY);
       ctx.lineTo(node.x, node.y);
@@ -354,11 +354,11 @@ function renderTrailGraph() {
   ctx.textBaseline = 'top';
   ctx.fillText(folderName, projectX, projectY + projectRadius + 4);
 
-  // Draw trail nodes
+  // Draw task nodes
   const nodeRadius = 6;
   for (const node of nodes) {
-    const isActive = node.id === state.activeTrailId;
-    const isHovered = _trailGraphHover === node.id;
+    const isActive = node.id === state.activeTaskId;
+    const isHovered = _taskGraphHover === node.id;
 
     ctx.beginPath();
     ctx.arc(node.x, node.y, nodeRadius + (isHovered ? 2 : 0), 0, Math.PI * 2);
@@ -374,23 +374,23 @@ function renderTrailGraph() {
     ctx.fillText(node.name, node.x, node.y + nodeRadius + 10);
 
     // Entry count badge
-    if (node.trail.entryCount > 0) {
+    if (node.task.entryCount > 0) {
       ctx.fillStyle = text2;
       ctx.font = `400 8px ${fontSystem}`;
-      ctx.fillText(`${node.trail.entryCount} entries`, node.x, node.y + nodeRadius + 20);
+      ctx.fillText(`${node.task.entryCount} entries`, node.x, node.y + nodeRadius + 20);
     }
   }
 
   // Store nodes for hit testing
-  canvas._trailNodes = nodes;
+  canvas._taskNodes = nodes;
   canvas._projectNode = { x: projectX, y: projectY, radius: projectRadius };
 }
 
-function trailGraphHitTest(canvas, clientX, clientY) {
+function taskGraphHitTest(canvas, clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  const nodes = canvas._trailNodes || [];
+  const nodes = canvas._taskNodes || [];
   for (const node of nodes) {
     const dx = x - node.x;
     const dy = y - node.y;
@@ -399,7 +399,7 @@ function trailGraphHitTest(canvas, clientX, clientY) {
   return null;
 }
 
-function trailGraphProjectHitTest(canvas, clientX, clientY) {
+function taskGraphProjectHitTest(canvas, clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
@@ -410,29 +410,29 @@ function trailGraphProjectHitTest(canvas, clientX, clientY) {
   return dx * dx + dy * dy <= pn.radius * pn.radius;
 }
 
-function showNewTrailPopup(canvas) {
+function showNewTaskPopup(canvas) {
   // Remove existing popup if any
-  const existing = document.getElementById('trail-graph-popup');
+  const existing = document.getElementById('task-graph-popup');
   if (existing) existing.remove();
 
   const rect = canvas.getBoundingClientRect();
   const pn = canvas._projectNode || { x: 60, y: 100 };
   const popup = document.createElement('div');
-  popup.id = 'trail-graph-popup';
-  popup.className = 'trail-graph-popup';
+  popup.id = 'task-graph-popup';
+  popup.className = 'task-graph-popup';
   popup.style.left = (rect.left + pn.x - 60) + 'px';
   popup.style.top = (rect.top + pn.y + pn.radius + 8) + 'px';
   popup.innerHTML =
-    `<button class="trail-graph-popup-add">+ add research trail</button>` +
-    `<input type="text" class="trail-graph-popup-input" placeholder="Trail name (leave empty for auto)" spellcheck="false">`;
+    `<button class="task-graph-popup-add">+ add research task</button>` +
+    `<input type="text" class="task-graph-popup-input" placeholder="Task name (leave empty for auto)" spellcheck="false">`;
   document.body.appendChild(popup);
 
-  const addBtn = popup.querySelector('.trail-graph-popup-add');
-  const nameInput = popup.querySelector('.trail-graph-popup-input');
+  const addBtn = popup.querySelector('.task-graph-popup-add');
+  const nameInput = popup.querySelector('.task-graph-popup-input');
 
-  function createTrail() {
+  function createTask() {
     const name = nameInput.value.trim();
-    vscode.postMessage({ type: 'janeTrailNew', name });
+    vscode.postMessage({ type: 'janeTaskNew', name });
     popup.remove();
   }
 
@@ -448,7 +448,7 @@ function showNewTrailPopup(canvas) {
     e.stopPropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
-      createTrail();
+      createTask();
     }
     if (e.key === 'Escape') {
       popup.remove();
@@ -470,28 +470,28 @@ function showNewTrailPopup(canvas) {
   nameInput.focus();
 }
 
-function showTrailInfoPopup(canvas, node) {
-  const existing = document.getElementById('trail-graph-popup');
+function showTaskInfoPopup(canvas, node) {
+  const existing = document.getElementById('task-graph-popup');
   if (existing) existing.remove();
 
   const rect = canvas.getBoundingClientRect();
   const popup = document.createElement('div');
-  popup.id = 'trail-graph-popup';
-  popup.className = 'trail-graph-popup';
+  popup.id = 'task-graph-popup';
+  popup.className = 'task-graph-popup';
   popup.style.left = (rect.left + node.x - 80) + 'px';
   popup.style.top = (rect.top + node.y + 18) + 'px';
 
-  const entries = node.trail.entryCount || 0;
-  const updated = node.trail.updatedAt ? new Date(node.trail.updatedAt).toLocaleString() : '';
-  const status = node.trail.bootstrapDone ? 'bootstrapped' : 'needs bootstrap';
-  const lastQ = node.trail.lastQuestion ? node.trail.lastQuestion.slice(0, 60) + (node.trail.lastQuestion.length > 60 ? '…' : '') : '—';
+  const entries = node.task.entryCount || 0;
+  const updated = node.task.updatedAt ? new Date(node.task.updatedAt).toLocaleString() : '';
+  const status = node.task.bootstrapDone ? 'bootstrapped' : 'needs bootstrap';
+  const lastQ = node.task.lastQuestion ? node.task.lastQuestion.slice(0, 60) + (node.task.lastQuestion.length > 60 ? '…' : '') : '—';
 
   popup.innerHTML =
-    `<div class="trail-graph-popup-info">` +
-    `<div class="trail-info-name">${escapeHtml(node.name)}</div>` +
-    `<div class="trail-info-detail">${status} · ${entries} entries</div>` +
-    `<div class="trail-info-detail">${updated ? 'updated ' + updated : ''}</div>` +
-    `<div class="trail-info-lastq">last: ${escapeHtml(lastQ)}</div>` +
+    `<div class="task-graph-popup-info">` +
+    `<div class="task-info-name">${escapeHtml(node.name)}</div>` +
+    `<div class="task-info-detail">${status} · ${entries} entries</div>` +
+    `<div class="task-info-detail">${updated ? 'updated ' + updated : ''}</div>` +
+    `<div class="task-info-lastq">last: ${escapeHtml(lastQ)}</div>` +
     `</div>`;
   document.body.appendChild(popup);
 
@@ -506,13 +506,13 @@ function showTrailInfoPopup(canvas, node) {
   }, 0);
 }
 
-function showTrailContextMenu(_canvas, node, clientX, clientY) {
-  const existing = document.getElementById('trail-graph-popup');
+function showTaskContextMenu(_canvas, node, clientX, clientY) {
+  const existing = document.getElementById('task-graph-popup');
   if (existing) existing.remove();
 
   const popup = document.createElement('div');
-  popup.id = 'trail-graph-popup';
-  popup.className = 'trail-graph-popup';
+  popup.id = 'task-graph-popup';
+  popup.className = 'task-graph-popup';
   popup.style.left = clientX + 'px';
   popup.style.top = clientY + 'px';
 
@@ -522,19 +522,19 @@ function showTrailContextMenu(_canvas, node, clientX, clientY) {
   const RENAME_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z"/></svg>`;
 
   popup.innerHTML =
-    `<div class="trail-ctx-rename-row">` +
-    `<span class="trail-ctx-rename-icon">${RENAME_SVG}</span>` +
-    `<input type="text" class="trail-ctx-rename-input" value="${escapeHtml(node.name)}" spellcheck="false">` +
+    `<div class="task-ctx-rename-row">` +
+    `<span class="task-ctx-rename-icon">${RENAME_SVG}</span>` +
+    `<input type="text" class="task-ctx-rename-input" value="${escapeHtml(node.name)}" spellcheck="false">` +
     `</div>` +
-    `<button class="trail-graph-popup-add trail-ctx-fork">${FORK_SVG} fork trail</button>` +
-    `<input type="text" class="trail-graph-popup-input hidden" placeholder="Fork name (leave empty for auto)" spellcheck="false">` +
-    `<button class="trail-graph-popup-delete trail-ctx-delete">${TRASH_SVG} delete trail</button>`;
+    `<button class="task-graph-popup-add task-ctx-fork">${FORK_SVG} fork task</button>` +
+    `<input type="text" class="task-graph-popup-input hidden" placeholder="Fork name (leave empty for auto)" spellcheck="false">` +
+    `<button class="task-graph-popup-delete task-ctx-delete">${TRASH_SVG} delete task</button>`;
   document.body.appendChild(popup);
 
-  const renameInput = popup.querySelector('.trail-ctx-rename-input');
-  const forkBtn = popup.querySelector('.trail-ctx-fork');
-  const nameInput = popup.querySelector('.trail-graph-popup-input');
-  const deleteBtn = popup.querySelector('.trail-ctx-delete');
+  const renameInput = popup.querySelector('.task-ctx-rename-input');
+  const forkBtn = popup.querySelector('.task-ctx-fork');
+  const nameInput = popup.querySelector('.task-graph-popup-input');
+  const deleteBtn = popup.querySelector('.task-ctx-delete');
 
   // Rename on Enter
   renameInput.addEventListener('keydown', (e) => {
@@ -543,7 +543,7 @@ function showTrailContextMenu(_canvas, node, clientX, clientY) {
       e.preventDefault();
       const newName = renameInput.value.trim();
       if (newName && newName !== node.name) {
-        vscode.postMessage({ type: 'janeTrailRename', trailId: node.id, name: newName });
+        vscode.postMessage({ type: 'janeTaskRename', taskId: node.id, name: newName });
       }
       popup.remove();
     }
@@ -567,7 +567,7 @@ function showTrailContextMenu(_canvas, node, clientX, clientY) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const name = nameInput.value.trim();
-      vscode.postMessage({ type: 'janeTrailFork', name, sourceTrailId: node.id });
+      vscode.postMessage({ type: 'janeTaskFork', name, sourceTaskId: node.id });
       popup.remove();
     }
     if (e.key === 'Escape') {
@@ -578,7 +578,7 @@ function showTrailContextMenu(_canvas, node, clientX, clientY) {
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     popup.remove();
-    showDeleteTrailConfirmation(node);
+    showDeleteTaskConfirmation(node);
   });
 
   setTimeout(() => {
@@ -592,28 +592,28 @@ function showTrailContextMenu(_canvas, node, clientX, clientY) {
   }, 0);
 }
 
-function showDeleteTrailConfirmation(node) {
-  const existing = document.getElementById('trail-delete-confirm');
+function showDeleteTaskConfirmation(node) {
+  const existing = document.getElementById('task-delete-confirm');
   if (existing) existing.remove();
 
   const overlay = document.createElement('div');
-  overlay.id = 'trail-delete-confirm';
-  overlay.className = 'trail-delete-overlay';
+  overlay.id = 'task-delete-confirm';
+  overlay.className = 'task-delete-overlay';
   overlay.innerHTML =
-    `<div class="trail-delete-dialog">` +
-    `<div class="trail-delete-message">Are you sure you want to delete trail<br><strong>${escapeHtml(node.name)}</strong>?</div>` +
-    `<div class="trail-delete-hint">This will delete the trail and any downstream forks.</div>` +
-    `<div class="trail-delete-actions">` +
-    `<button class="btn trail-delete-yes">Yes</button>` +
-    `<button class="btn trail-delete-no">No</button>` +
+    `<div class="task-delete-dialog">` +
+    `<div class="task-delete-message">Are you sure you want to delete task<br><strong>${escapeHtml(node.name)}</strong>?</div>` +
+    `<div class="task-delete-hint">This will delete the task and any downstream forks.</div>` +
+    `<div class="task-delete-actions">` +
+    `<button class="btn task-delete-yes">Yes</button>` +
+    `<button class="btn task-delete-no">No</button>` +
     `</div></div>`;
   document.body.appendChild(overlay);
 
-  overlay.querySelector('.trail-delete-yes').addEventListener('click', () => {
-    vscode.postMessage({ type: 'janeTrailDelete', trailId: node.id });
+  overlay.querySelector('.task-delete-yes').addEventListener('click', () => {
+    vscode.postMessage({ type: 'janeTaskDelete', taskId: node.id });
     overlay.remove();
   });
-  overlay.querySelector('.trail-delete-no').addEventListener('click', () => {
+  overlay.querySelector('.task-delete-no').addEventListener('click', () => {
     overlay.remove();
   });
   overlay.addEventListener('click', (e) => {
@@ -622,8 +622,8 @@ function showDeleteTrailConfirmation(node) {
 }
 
 // Wire canvas interactions
-(function initTrailGraph() {
-  const canvas = document.getElementById('trail-graph');
+(function initTaskGraph() {
+  const canvas = document.getElementById('task-graph');
   if (!canvas) return;
 
   let _dragStartX = 0, _dragStartY = 0, _didDrag = false;
@@ -646,12 +646,12 @@ function showDeleteTrailConfirmation(node) {
         return;
       }
     }
-    // Check trail nodes
-    const nodes = canvas._trailNodes || [];
+    // Check task nodes
+    const nodes = canvas._taskNodes || [];
     for (const node of nodes) {
       const dx = mx - node.x, dy = my - node.y;
       if (dx * dx + dy * dy <= 12 * 12) {
-        _dragNode = { type: 'trail', id: node.id, offsetX: dx, offsetY: dy };
+        _dragNode = { type: 'task', id: node.id, offsetX: dx, offsetY: dy };
         canvas.style.cursor = 'grabbing';
         return;
       }
@@ -671,19 +671,19 @@ function showDeleteTrailConfirmation(node) {
       } else {
         _userPositions[_dragNode.id] = { x: mx - _dragNode.offsetX, y: my - _dragNode.offsetY };
       }
-      renderTrailGraph();
+      renderTaskGraph();
       return;
     }
 
     // Hover detection (no drag)
-    const isProject = trailGraphProjectHitTest(canvas, e.clientX, e.clientY);
-    const node = isProject ? null : trailGraphHitTest(canvas, e.clientX, e.clientY);
+    const isProject = taskGraphProjectHitTest(canvas, e.clientX, e.clientY);
+    const node = isProject ? null : taskGraphHitTest(canvas, e.clientX, e.clientY);
     const hoverId = node ? node.id : null;
     const showPointer = isProject || hoverId;
-    if (hoverId !== _trailGraphHover || (isProject && !_trailGraphHover)) {
-      _trailGraphHover = hoverId;
+    if (hoverId !== _taskGraphHover || (isProject && !_taskGraphHover)) {
+      _taskGraphHover = hoverId;
       canvas.style.cursor = showPointer ? 'grab' : 'default';
-      renderTrailGraph();
+      renderTaskGraph();
     }
   });
 
@@ -700,15 +700,15 @@ function showDeleteTrailConfirmation(node) {
         _projectNodeSelected = !_projectNodeSelected;
         const promptPanel = document.getElementById('project-prompt-panel');
         if (promptPanel) promptPanel.classList.toggle('hidden', !_projectNodeSelected);
-        renderTrailGraph();
+        renderTaskGraph();
         return;
       }
-      if (wasDragging && dragType === 'trail') {
-        if (dragId !== state.activeTrailId) {
-          vscode.postMessage({ type: 'janeTrailSwitch', trailId: dragId });
+      if (wasDragging && dragType === 'task') {
+        if (dragId !== state.activeTaskId) {
+          vscode.postMessage({ type: 'janeTaskSwitch', taskId: dragId });
         } else {
-          const node = (canvas._trailNodes || []).find(n => n.id === dragId);
-          if (node) showTrailInfoPopup(canvas, node);
+          const node = (canvas._taskNodes || []).find(n => n.id === dragId);
+          if (node) showTaskInfoPopup(canvas, node);
         }
         return;
       }
@@ -717,33 +717,33 @@ function showDeleteTrailConfirmation(node) {
 
   canvas.addEventListener('mouseleave', () => {
     _dragNode = null;
-    if (_trailGraphHover) {
-      _trailGraphHover = null;
+    if (_taskGraphHover) {
+      _taskGraphHover = null;
       canvas.style.cursor = 'default';
-      renderTrailGraph();
+      renderTaskGraph();
     }
   });
 
   canvas.addEventListener('contextmenu', (e) => {
-    // Right-click project node → new trail popup
-    if (trailGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
+    // Right-click project node → new task popup
+    if (taskGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
       e.preventDefault();
-      showNewTrailPopup(canvas);
+      showNewTaskPopup(canvas);
       return;
     }
-    const node = trailGraphHitTest(canvas, e.clientX, e.clientY);
+    const node = taskGraphHitTest(canvas, e.clientX, e.clientY);
     if (node) {
       e.preventDefault();
-      showTrailContextMenu(canvas, node, e.clientX, e.clientY);
+      showTaskContextMenu(canvas, node, e.clientX, e.clientY);
       return;
     }
-    if (trailGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
+    if (taskGraphProjectHitTest(canvas, e.clientX, e.clientY)) {
       e.preventDefault();
     }
   });
 
   // Redraw on resize
-  const ro = new ResizeObserver(() => renderTrailGraph());
+  const ro = new ResizeObserver(() => renderTaskGraph());
   ro.observe(canvas);
 })();
 
@@ -773,7 +773,7 @@ function finalizeHydratedSession() {
   }
 }
 
-function hydrateTrailSession(session, options = {}) {
+function hydrateTaskSession(session, options = {}) {
   if (options.resetLoadedConfigs) resetLoadedConfigDrafts();
   state._pendingExternalDrafts = new Map();
   state._appliedExternalDraftIds = new Set();
@@ -983,7 +983,7 @@ window.addEventListener('message', event => {
         const prev = vscode.getState() || {};
         vscode.setState({ ...prev, pinned: state.pinned });
       }
-      // Restore trail instructions and bitácora
+      // Restore task instructions and bitácora
       const instrEditor = document.getElementById('sysprompt-editor');
       if (instrEditor) instrEditor.value = msg.additionalInstructions || '';
       const bitacoraDisplay = document.getElementById('bitacora-display');
@@ -991,10 +991,10 @@ window.addEventListener('message', event => {
       const ppEditor = document.getElementById('project-prompt-editor');
       if (ppEditor) ppEditor.value = msg.projectPrompt || '';
       const session = msg.session || {};
-      applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
+      applyTaskStatePayload(msg.tasks || [], msg.activeTask || null);
       state.availableCodingAgents = Array.isArray(msg.codingAgents) ? msg.codingAgents.slice() : [];
       updateCodingAgentControls(msg.defaultCodingAgentId || '');
-      hydrateTrailSession(session);
+      hydrateTaskSession(session);
       if ((!session.dashboardState || !session.dashboardState.pinnedFields || Object.keys(session.dashboardState.pinnedFields).length === 0)
           && msg.pinnedFields && Object.keys(msg.pinnedFields).length > 0) {
         state.pinned = msg.pinnedFields;
@@ -1145,16 +1145,16 @@ window.addEventListener('message', event => {
       break;
     }
     case 'janeSessionSync': {
-      const trailState = msg.trailState || {};
-      const nextTrailId = trailState.activeTrail && trailState.activeTrail.id ? trailState.activeTrail.id : '';
-      const trailChanged = !!(nextTrailId && nextTrailId !== state.activeTrailId);
-      applyTrailStatePayload(trailState.trails || [], trailState.activeTrail || null);
+      const taskState = msg.taskState || {};
+      const nextTaskId = taskState.activeTask && taskState.activeTask.id ? taskState.activeTask.id : '';
+      const taskChanged = !!(nextTaskId && nextTaskId !== state.activeTaskId);
+      applyTaskStatePayload(taskState.tasks || [], taskState.activeTask || null);
       // Refresh bitácora display
       const syncSession = msg.session || {};
       const bd = document.getElementById('bitacora-display');
       if (bd) bd.innerHTML = renderMarkdownLatex(syncSession.bitacora || '*(No bitácora yet)*');
-      if (trailChanged) {
-        hydrateTrailSession(syncSession, { resetLoadedConfigs: true });
+      if (taskChanged) {
+        hydrateTaskSession(syncSession, { resetLoadedConfigs: true });
         const ie = document.getElementById('sysprompt-editor');
         if (ie) ie.value = syncSession.additionalInstructions || '';
         requestNotebookKernelStatus();
@@ -1176,23 +1176,23 @@ window.addEventListener('message', event => {
       requestNotebookKernelStatus();
       break;
     }
-    case 'trailState': {
-      applyTrailStatePayload(msg.trails || [], msg.activeTrail || null);
+    case 'taskState': {
+      applyTaskStatePayload(msg.tasks || [], msg.activeTask || null);
       updateCodingAgentControls();
-      const trailSession = msg.session || {};
-      hydrateTrailSession(trailSession, { resetLoadedConfigs: true });
-      // Update bitácora and trail instructions for the new/switched trail
+      const taskSession = msg.session || {};
+      hydrateTaskSession(taskSession, { resetLoadedConfigs: true });
+      // Update bitácora and task instructions for the new/switched task
       const bdEl = document.getElementById('bitacora-display');
-      if (bdEl) bdEl.innerHTML = renderMarkdownLatex(trailSession.bitacora || '*(No bitácora yet)*');
+      if (bdEl) bdEl.innerHTML = renderMarkdownLatex(taskSession.bitacora || '*(No bitácora yet)*');
       const ieEl = document.getElementById('sysprompt-editor');
-      if (ieEl) ieEl.value = trailSession.additionalInstructions || '';
+      if (ieEl) ieEl.value = taskSession.additionalInstructions || '';
       updateSyspromptSparks();
       const verb = msg.action === 'new'
         ? 'Started'
         : (msg.action === 'fork'
           ? 'Forked to'
           : (msg.action === 'rename' ? 'Renamed to' : 'Switched to'));
-      toast(`${verb} ${state.activeTrailName || 'Trail'}`, 'success');
+      toast(`${verb} ${state.activeTaskName || 'Task'}`, 'success');
       requestNotebookKernelStatus();
       break;
     }
@@ -1520,52 +1520,52 @@ if (codingAgentSelectEl) {
 }
 const connectAgentBtn = document.getElementById('connect-agent-btn');
 if (connectAgentBtn) connectAgentBtn.addEventListener('click', connectSelectedCodingAgent);
-const trailSelectEl = document.getElementById('trail-select');
-if (trailSelectEl) {
-  trailSelectEl.addEventListener('change', e => {
-    const trailId = e.target.value || '';
-    if (!trailId || trailId === state.activeTrailId) return;
-    vscode.postMessage({ type: 'janeTrailSwitch', trailId });
+const taskSelectEl = document.getElementById('task-select');
+if (taskSelectEl) {
+  taskSelectEl.addEventListener('change', e => {
+    const taskId = e.target.value || '';
+    if (!taskId || taskId === state.activeTaskId) return;
+    vscode.postMessage({ type: 'janeTaskSwitch', taskId });
   });
 }
-function getTrailPanelName(mode) {
-  const input = document.getElementById('trail-name-input');
+function getTaskPanelName(mode) {
+  const input = document.getElementById('task-name-input');
   const raw = input ? input.value.trim() : '';
   if (mode === 'rename') return raw;
-  return raw && raw !== String(state.activeTrailName || '').trim() ? raw : '';
+  return raw && raw !== String(state.activeTaskName || '').trim() ? raw : '';
 }
-const trailRenameBtn = document.getElementById('trail-rename-btn');
-if (trailRenameBtn) {
-  trailRenameBtn.addEventListener('click', () => {
-    const name = getTrailPanelName('rename');
+const taskRenameBtn = document.getElementById('task-rename-btn');
+if (taskRenameBtn) {
+  taskRenameBtn.addEventListener('click', () => {
+    const name = getTaskPanelName('rename');
     if (!name) {
-      toast('Enter a Trail name first', 'error');
+      toast('Enter a Task name first', 'error');
       return;
     }
-    if (name === String(state.activeTrailName || '').trim()) {
-      toast('Trail name is already up to date', 'success');
+    if (name === String(state.activeTaskName || '').trim()) {
+      toast('Task name is already up to date', 'success');
       return;
     }
     vscode.postMessage({
-      type: 'janeTrailRename',
-      trailId: state.activeTrailId || '',
+      type: 'janeTaskRename',
+      taskId: state.activeTaskId || '',
       name,
     });
   });
 }
-const trailNewBtn = document.getElementById('trail-new-btn');
-if (trailNewBtn) {
-  trailNewBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'janeTrailNew', name: getTrailPanelName('new') });
+const taskNewBtn = document.getElementById('task-new-btn');
+if (taskNewBtn) {
+  taskNewBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'janeTaskNew', name: getTaskPanelName('new') });
   });
 }
-const trailForkBtn = document.getElementById('trail-fork-btn');
-if (trailForkBtn) {
-  trailForkBtn.addEventListener('click', () => {
+const taskForkBtn = document.getElementById('task-fork-btn');
+if (taskForkBtn) {
+  taskForkBtn.addEventListener('click', () => {
     vscode.postMessage({
-      type: 'janeTrailFork',
-      name: getTrailPanelName('fork'),
-      sourceTrailId: state.activeTrailId || '',
+      type: 'janeTaskFork',
+      name: getTaskPanelName('fork'),
+      sourceTaskId: state.activeTaskId || '',
     });
   });
 }
@@ -1585,7 +1585,7 @@ if (projectPromptResetBtn) {
   });
 }
 
-// ── Trail instructions ──────────────────────────────
+// ── Task instructions ──────────────────────────────
 const syspromptResetBtn = document.getElementById('sysprompt-reset');
 if (syspromptResetBtn) {
   syspromptResetBtn.addEventListener('click', () => {
@@ -1652,7 +1652,7 @@ if (kernelInterruptBtn) {
     vscode.postMessage({
       type: 'kernelControl',
       action: 'interrupt',
-      trailId: state.activeTrailId || '',
+      taskId: state.activeTaskId || '',
       language: 'python',
     });
   });
@@ -1663,7 +1663,7 @@ if (kernelRestartBtn) {
     vscode.postMessage({
       type: 'kernelControl',
       action: 'restart',
-      trailId: state.activeTrailId || '',
+      taskId: state.activeTaskId || '',
       language: 'python',
     });
   });

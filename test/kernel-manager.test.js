@@ -31,10 +31,10 @@ async function withTimeout(promise, ms, label) {
 
 console.log('\n\x1b[1mKernel Manager\x1b[0m');
 
-test('restart clears python kernel state for a trail', async () => {
+test('restart clears python kernel state for a task', async () => {
   const manager = new NotebookKernelManager();
   const configDir = mkTmpDir();
-  const request = { language: 'python', configDir, trailId: 'trail_restart' };
+  const request = { language: 'python', configDir, taskId: 'task_restart' };
   try {
     await manager.execute({ ...request, code: 'value = 11' });
     const restart = await manager.restart(request);
@@ -56,7 +56,7 @@ test('restart clears python kernel state for a trail', async () => {
 test('interrupt stops a long-running python cell and keeps the kernel usable', async () => {
   const manager = new NotebookKernelManager();
   const configDir = mkTmpDir();
-  const request = { language: 'python', configDir, trailId: 'trail_interrupt' };
+  const request = { language: 'python', configDir, taskId: 'task_interrupt' };
   try {
     const pending = manager.execute({
       ...request,

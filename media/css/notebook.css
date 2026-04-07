@@ -254,7 +254,7 @@
 #notebook-panel > .dash-panel-header {
   border-bottom: 1px solid var(--border);
 }
-.notebook-trail-name-label {
+.notebook-task-name-label {
   font-family: var(--font-field);
   font-size: var(--font-size-base);
   text-transform: lowercase;
@@ -267,7 +267,7 @@
   margin-left: 16px;
 }
 #notebook-panel.collapsed > .dash-panel-body { display: none; }
-.notebook-trail-logo {
+.notebook-task-logo {
   color: var(--color-field);
   flex-shrink: 0;
 }

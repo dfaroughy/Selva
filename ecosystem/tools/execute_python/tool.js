@@ -1,10 +1,10 @@
 const { getNotebookKernelManager } = require('../../../lib/kernel-manager');
 
-async function executeWithKernel({ code, configDir, trailId }) {
+async function executeWithKernel({ code, configDir, taskId }) {
   const kernelResult = await getNotebookKernelManager().execute({
     language: 'python',
     configDir,
-    trailId,
+    taskId,
     code,
   });
 
@@ -25,15 +25,15 @@ async function executeWithKernel({ code, configDir, trailId }) {
 // Extension context — this module is require'd by extension.js
 // Returns an async handler function
 module.exports = async function(input, context) {
-  const { execFileAsync, configDir, trailId } = context;
+  const { execFileAsync, configDir, taskId } = context;
   const code = input.code;
   const inputData = input.input_data ? JSON.stringify(input.input_data) : '';
   try {
-    if (trailId && !inputData) {
+    if (taskId && !inputData) {
       return await executeWithKernel({
         code,
         configDir,
-        trailId: String(trailId || ''),
+        taskId: String(taskId || ''),
       });
     }
     const { stdout, stderr } = await execFileAsync('python3', ['-c', code], {

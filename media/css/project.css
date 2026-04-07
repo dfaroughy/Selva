@@ -36,12 +36,12 @@
   white-space: pre-wrap;
   box-sizing: border-box;
 }
-#trail-panel {
+#task-panel {
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
   padding: 0 18px 10px;
 }
-#trail-panel.hidden { display: none; }
+#task-panel.hidden { display: none; }
 .sysprompt-header {
   display: flex;
   align-items: center;
@@ -98,12 +98,12 @@
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
-#trail-panel-btn.active {
+#task-panel-btn.active {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
-/* Trail graph canvas */
-#trail-graph {
+/* Task graph canvas */
+#task-graph {
   width: 100%;
   height: 180px;
   display: block;
@@ -111,11 +111,11 @@
   margin-bottom: 8px;
   border-radius: var(--radius);
 }
-.trail-panel-controls {
+.task-panel-controls {
   padding: 0;
 }
-/* Trail graph popup (new trail from project node) */
-.trail-graph-popup {
+/* Task graph popup (new task from project node) */
+.task-graph-popup {
   position: fixed;
   z-index: 100;
   background: var(--bg-1);
@@ -128,7 +128,7 @@
   gap: 6px;
   min-width: 160px;
 }
-.trail-graph-popup-add {
+.task-graph-popup-add {
   background: none;
   border: none;
   color: var(--accent);
@@ -140,10 +140,10 @@
   text-align: left;
   border-radius: 3px;
 }
-.trail-graph-popup-add:hover {
+.task-graph-popup-add:hover {
   background: var(--bg-2);
 }
-.trail-graph-popup-input {
+.task-graph-popup-input {
   background: var(--bg-0);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -153,11 +153,11 @@
   padding: 4px 8px;
   outline: none;
 }
-.trail-graph-popup-input:focus {
+.task-graph-popup-input:focus {
   border-color: var(--accent);
 }
-.trail-graph-popup-input.hidden { display: none; }
-.trail-graph-popup-switch {
+.task-graph-popup-input.hidden { display: none; }
+.task-graph-popup-switch {
   background: none;
   border: none;
   color: var(--text-1);
@@ -168,36 +168,36 @@
   text-align: left;
   border-radius: 3px;
 }
-.trail-graph-popup-switch:hover {
+.task-graph-popup-switch:hover {
   background: var(--bg-2);
   color: var(--text-0);
 }
-/* Trail info popup */
-.trail-graph-popup-info {
+/* Task info popup */
+.task-graph-popup-info {
   padding: 2px 4px;
 }
-.trail-info-name {
+.task-info-name {
   font-family: var(--font-system);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-0);
   margin-bottom: 4px;
 }
-.trail-info-detail {
+.task-info-detail {
   font-family: var(--font-system);
   font-size: 10px;
   color: var(--text-2);
   line-height: 1.4;
 }
-.trail-info-lastq {
+.task-info-lastq {
   font-family: var(--font-system);
   font-size: 10px;
   color: var(--text-2);
   font-style: italic;
   margin-top: 4px;
 }
-/* Trail context menu delete */
-.trail-graph-popup-delete {
+/* Task context menu delete */
+.task-graph-popup-delete {
   background: none;
   border: none;
   color: var(--text-2);
@@ -211,28 +211,28 @@
   align-items: center;
   gap: 6px;
 }
-.trail-graph-popup-delete:hover {
+.task-graph-popup-delete:hover {
   background: #3a1a1a;
   color: #f78166;
 }
-.trail-ctx-fork {
+.task-ctx-fork {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-/* Trail context menu rename */
-.trail-ctx-rename-row {
+/* Task context menu rename */
+.task-ctx-rename-row {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 2px 4px;
 }
-.trail-ctx-rename-icon {
+.task-ctx-rename-icon {
   color: var(--text-2);
   flex-shrink: 0;
   display: flex;
 }
-.trail-ctx-rename-input {
+.task-ctx-rename-input {
   background: var(--bg-0);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -243,11 +243,11 @@
   outline: none;
   width: 120px;
 }
-.trail-ctx-rename-input:focus {
+.task-ctx-rename-input:focus {
   border-color: var(--accent);
 }
 /* Delete confirmation overlay */
-.trail-delete-overlay {
+.task-delete-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.5);
@@ -256,7 +256,7 @@
   align-items: center;
   justify-content: center;
 }
-.trail-delete-dialog {
+.task-delete-dialog {
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -265,48 +265,48 @@
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
   max-width: 320px;
 }
-.trail-delete-message {
+.task-delete-message {
   font-family: var(--font-system);
   font-size: 13px;
   color: var(--text-0);
   margin-bottom: 8px;
   line-height: 1.5;
 }
-.trail-delete-hint {
+.task-delete-hint {
   font-family: var(--font-system);
   font-size: 11px;
   color: var(--text-2);
   margin-bottom: 16px;
 }
-.trail-delete-actions {
+.task-delete-actions {
   display: flex;
   justify-content: center;
   gap: 12px;
 }
-.trail-delete-yes {
+.task-delete-yes {
   background: #6e2020;
   border-color: #904040;
   color: #ff9090;
 }
-.trail-delete-yes:hover { background: #8a2a2a; }
-.trail-delete-no {
+.task-delete-yes:hover { background: #8a2a2a; }
+.task-delete-no {
   background: var(--bg-2);
 }
-.trail-panel-header {
+.task-panel-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 0 6px;
 }
-.trail-panel-title {
+.task-panel-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.trail-panel-status {
+.task-panel-status {
   flex: 1 1 auto;
   min-width: 0;
   text-align: right;
@@ -317,18 +317,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.trail-panel-grid {
+.task-panel-grid {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
   gap: 8px 10px;
   align-items: center;
 }
-.trail-panel-label {
+.task-panel-label {
   font-size: 11px;
   color: var(--text-2);
 }
-.trail-panel-select,
-.trail-panel-input {
+.task-panel-select,
+.task-panel-input {
   width: 100%;
   min-width: 0;
   background: var(--bg-0);
@@ -339,18 +339,18 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 11px;
 }
-.trail-panel-select:focus,
-.trail-panel-input:focus {
+.task-panel-select:focus,
+.task-panel-input:focus {
   outline: none;
   border-color: var(--accent);
 }
-.trail-panel-actions {
+.task-panel-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
 }
-.trail-panel-action {
+.task-panel-action {
   font-size: 10px;
   padding: 4px 10px;
 }
@@ -360,11 +360,11 @@
   font-size: 11px;
 }
 
-/* Trail graph inside dash-panel */
-#trails-panel .dash-panel-body {
+/* Task graph inside dash-panel */
+#tasks-panel .dash-panel-body {
   padding: 0;
 }
-#trails-panel #trail-graph {
+#tasks-panel #task-graph {
   width: 100%;
   height: 200px;
   display: block;
@@ -376,7 +376,7 @@
   display: flex;
   gap: 0;
 }
-.project-panel-body #trail-graph {
+.project-panel-body #task-graph {
   flex: 1;
   min-width: 0;
 }

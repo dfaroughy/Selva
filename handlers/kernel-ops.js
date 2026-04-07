@@ -11,7 +11,7 @@ async function handleKernelOp(msg, ctx) {
         const request = {
           language: msg.language || 'python',
           configDir,
-          trailId: msg.trailId || activeSession.trailId || '',
+          taskId: msg.taskId || activeSession.taskId || '',
         };
         const onStream = (text) => {
           panel.webview.postMessage({
@@ -28,7 +28,7 @@ async function handleKernelOp(msg, ctx) {
           extensionPath,
           execFileAsync,
           panel,
-          trailId: request.trailId,
+          taskId: request.taskId,
           onStream,
         });
         panel.webview.postMessage({
@@ -43,7 +43,7 @@ async function handleKernelOp(msg, ctx) {
         const request = {
           language: msg.language || 'python',
           configDir,
-          trailId: msg.trailId || activeSession.trailId || '',
+          taskId: msg.taskId || activeSession.taskId || '',
         };
         panel.webview.postMessage({
           type: 'executeCellResult',
@@ -60,7 +60,7 @@ async function handleKernelOp(msg, ctx) {
       const request = {
         language: msg.language || 'python',
         configDir,
-        trailId: msg.trailId || activeSession.trailId || '',
+        taskId: msg.taskId || activeSession.taskId || '',
       };
       panel.webview.postMessage({
         type: 'kernelStatusResult',
@@ -74,7 +74,7 @@ async function handleKernelOp(msg, ctx) {
       const request = {
         language: msg.language || 'python',
         configDir,
-        trailId: msg.trailId || activeSession.trailId || '',
+        taskId: msg.taskId || activeSession.taskId || '',
       };
       try {
         let result;

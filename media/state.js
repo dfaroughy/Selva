@@ -101,13 +101,13 @@ const state = {
   defaultPromptTemplate: '',
   sessionTokens: 0,  // accumulated token count for this session
   sessionEntries: [],
-  trails: [],
-  activeTrailId: '',
-  activeTrailName: '',
-  activeTrailPath: '',
+  tasks: [],
+  activeTaskId: '',
+  activeTaskName: '',
+  activeTaskPath: '',
   kernelStatus: {
     language: 'python',
-    trailId: '',
+    taskId: '',
     started: false,
     state: 'cold',
     pendingCount: 0,

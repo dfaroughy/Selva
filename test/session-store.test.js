@@ -9,17 +9,17 @@ const { applyWebviewOpsToSession } = require('../lib/backend-ops');
 const {
   acknowledgeExternalDrafts,
   clearJaneSession,
-  createJaneTrail,
+  createJaneTask,
   enqueueExternalDraft,
-  getActiveTrail,
+  getActiveTask,
   getSessionPath,
   hasOpenPanelSession,
-  listJaneTrails,
+  listJaneTasks,
   loadJaneSession,
-  renameJaneTrail,
+  renameJaneTask,
   replaceJaneEntries,
   setPanelState,
-  switchJaneTrail,
+  switchJaneTask,
   updateJaneSession,
 } = require('../lib/session-store');
 
@@ -60,9 +60,9 @@ function cleanup(configDir) {
   fs.rmSync(configDir, { recursive: true, force: true });
 }
 
-// Helper: create a trail on a fresh workspace (since no auto-creation)
-function ensureTestTrail(configDir, name) {
-  return createJaneTrail(configDir, { name: name || '' });
+// Helper: create a task on a fresh workspace (since no auto-creation)
+function ensureTestTask(configDir, name) {
+  return createJaneTask(configDir, { name: name || '' });
 }
 
 console.log('\n\x1b[1mSession Store\x1b[0m');
@@ -70,7 +70,7 @@ console.log('\n\x1b[1mSession Store\x1b[0m');
 test('session store persists model and additional instructions', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir);
+    ensureTestTask(configDir);
     updateJaneSession(configDir, (session) => {
       session.agentModelId = 'direct:gpt-4o';
       session.additionalInstructions = 'Be precise.';
@@ -85,10 +85,10 @@ test('session store persists model and additional instructions', () => {
   }
 });
 
-test('session store persists workspace trails as .svnb files and can switch between them', () => {
+test('session store persists workspace tasks as .svnb files and can switch between them', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir, 'First Trail');
+    ensureTestTask(configDir, 'First Task');
     updateJaneSession(configDir, (session) => {
       session.agentModelId = 'direct:gpt-4o';
       session.additionalInstructions = 'Keep answers compact.';
@@ -96,25 +96,25 @@ test('session store persists workspace trails as .svnb files and can switch betw
       return session;
     });
 
-    const initialTrail = getActiveTrail(configDir);
-    assert.ok(initialTrail);
-    assert.ok(initialTrail.path.endsWith('.svnb'));
-    assert.strictEqual(initialTrail.name, 'First Trail');
-    assert.match(initialTrail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
-    assert.strictEqual(listJaneTrails(configDir).length, 1);
+    const initialTask = getActiveTask(configDir);
+    assert.ok(initialTask);
+    assert.ok(initialTask.path.endsWith('.svnb'));
+    assert.strictEqual(initialTask.name, 'First Task');
+    assert.match(initialTask.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
+    assert.strictEqual(listJaneTasks(configDir).length, 1);
 
-    const created = createJaneTrail(configDir, { name: 'Clean Slate' });
-    assert.strictEqual(created.trail.name, 'Clean Slate');
-    assert.match(created.trail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
+    const created = createJaneTask(configDir, { name: 'Clean Slate' });
+    assert.strictEqual(created.task.name, 'Clean Slate');
+    assert.match(created.task.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
     assert.strictEqual(created.session.entries.length, 0);
     assert.strictEqual(created.session.bootstrap.done, false);
     assert.strictEqual(created.session.agentModelId, 'direct:gpt-4o');
     assert.strictEqual(created.session.additionalInstructions, 'Keep answers compact.');
-    assert.strictEqual(listJaneTrails(configDir).length, 2);
-    assert.strictEqual(getActiveTrail(configDir).id, created.trail.id);
+    assert.strictEqual(listJaneTasks(configDir).length, 2);
+    assert.strictEqual(getActiveTask(configDir).id, created.task.id);
 
-    const switched = switchJaneTrail(configDir, initialTrail.id);
-    assert.strictEqual(switched.trail.id, initialTrail.id);
+    const switched = switchJaneTask(configDir, initialTask.id);
+    assert.strictEqual(switched.task.id, initialTask.id);
     assert.strictEqual(loadJaneSession(configDir).entries.length, 1);
     assert.strictEqual(loadJaneSession(configDir).entries[0].question, 'first');
   } finally {
@@ -122,49 +122,49 @@ test('session store persists workspace trails as .svnb files and can switch betw
   }
 });
 
-test('default Trail ids use bigram_hex format independent of trail name', () => {
+test('default Task ids use bigram_hex format independent of task name', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir);
-    const trail = getActiveTrail(configDir);
-    assert.ok(trail);
-    assert.match(trail.name, /^[A-Za-z]+ [A-Za-z]+(?: \d+)?$/);
-    // ID is Bigram_Bigram_hex (independent of trail name)
-    assert.match(trail.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
+    ensureTestTask(configDir);
+    const task = getActiveTask(configDir);
+    assert.ok(task);
+    assert.match(task.name, /^[A-Za-z]+ [A-Za-z]+(?: \d+)?$/);
+    // ID is Bigram_Bigram_hex (independent of task name)
+    assert.match(task.id, /^[A-Za-z]+_[A-Za-z]+_[a-f0-9]{16}$/);
   } finally {
     cleanup(configDir);
   }
 });
 
-test('empty project returns empty session with no trails on disk', () => {
+test('empty project returns empty session with no tasks on disk', () => {
   const configDir = mkTmpDir();
   try {
     const session = loadJaneSession(configDir);
     assert.strictEqual(session.entries.length, 0);
-    assert.strictEqual(listJaneTrails(configDir).length, 0);
-    assert.strictEqual(getActiveTrail(configDir), null);
+    assert.strictEqual(listJaneTasks(configDir).length, 0);
+    assert.strictEqual(getActiveTask(configDir), null);
   } finally {
     cleanup(configDir);
   }
 });
 
-test('session store can auto-name and rename Trails without collisions', () => {
+test('session store can auto-name and rename Tasks without collisions', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir);
-    const initial = getActiveTrail(configDir);
+    ensureTestTask(configDir);
+    const initial = getActiveTask(configDir);
     assert.ok(initial.name);
 
-    const created = createJaneTrail(configDir, {});
-    assert.ok(created.trail.name);
-    assert.ok(created.trail.name !== initial.name);
+    const created = createJaneTask(configDir, {});
+    assert.ok(created.task.name);
+    assert.ok(created.task.name !== initial.name);
 
-    const renamed = renameJaneTrail(configDir, {
-      trailId: created.trail.id,
+    const renamed = renameJaneTask(configDir, {
+      taskId: created.task.id,
       name: initial.name,
     });
-    assert.ok(renamed.trail.name.startsWith(initial.name));
-    assert.ok(renamed.trail.name !== initial.name);
+    assert.ok(renamed.task.name.startsWith(initial.name));
+    assert.ok(renamed.task.name !== initial.name);
   } finally {
     cleanup(configDir);
   }
@@ -222,7 +222,7 @@ test('applyWebviewOpsToSession can persist setValue changes for MCP Jane turns',
 test('session store tracks open panel state and external draft queue', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir);
+    ensureTestTask(configDir);
     setPanelState(configDir, { open: true });
     enqueueExternalDraft(configDir, {
       id: 'draft-1',
@@ -250,7 +250,7 @@ test('session store tracks open panel state and external draft queue', () => {
 test('session store persists edited notebook cells and deleted entries as canonical cell data', () => {
   const configDir = mkTmpDir();
   try {
-    ensureTestTrail(configDir);
+    ensureTestTask(configDir);
     replaceJaneEntries(configDir, [
       {
         question: 'plot fig 10',

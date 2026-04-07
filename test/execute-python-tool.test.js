@@ -26,12 +26,12 @@ async function runTest(name, fn) {
 }
 
 (async () => {
-  await runTest('execute_python uses the kernel for plain code when trailId is present', async () => {
+  await runTest('execute_python uses the kernel for plain code when taskId is present', async () => {
     const configDir = mkTmpDir();
     try {
       const context = {
         configDir,
-        trailId: 'trail-a',
+        taskId: 'task-a',
         execFileAsync: async () => {
           throw new Error('one-shot fallback should not be used');
         },
@@ -55,7 +55,7 @@ async function runTest(name, fn) {
         { code: 'print("ignored")', input_data: { x: 1 } },
         {
           configDir,
-          trailId: 'trail-a',
+          taskId: 'task-a',
           execFileAsync: async (command, args, options) => {
             fallbackCalls += 1;
             assert.strictEqual(command, 'python3');

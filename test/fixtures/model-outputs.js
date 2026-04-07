@@ -42,8 +42,8 @@ module.exports = {
     expectedAnswer: 'Done',
   },
 
-  // Malformed JSON (trailing comma)
-  malformedTrailingComma: {
+  // Malformed JSON (tasking comma)
+  malformedTaskingComma: {
     input: '{"answer": "OK", "ops": [{"fn": "lockField", "args": ["f.yaml", ["x"]]},]}',
     expectedOps: 1,
   },

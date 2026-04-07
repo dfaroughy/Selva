@@ -8,7 +8,7 @@ const { loadAllTools } = require('../lib/selva-runtime');
 const { exportToIpynb, exportToPython } = require('../lib/notebook-export');
 const { exportProjectToHtml } = require('../lib/project-export');
 
-async function handleTrailOp(msg, ctx) {
+async function handleTaskOp(msg, ctx) {
   const {
     configDir,
     panel,
@@ -24,7 +24,7 @@ async function handleTrailOp(msg, ctx) {
 
   switch (msg.type) {
     case 'init': {
-      // Trail-independent data (always available)
+      // Task-independent data (always available)
       const files = findYamlFiles(configDir, configDir);
       const userDefaultSettings = context.globalState.get('userDefaultSettings', null);
       const pinnedKey = 'pinnedFields:' + configDir;
@@ -39,11 +39,11 @@ async function handleTrailOp(msg, ctx) {
         );
       } catch {}
 
-      // Trail-dependent data (may be empty if no trails exist yet)
-      const trailState = janeRuntime.listTrails();
-      const hasTrails = trailState.trails.length > 0;
+      // Task-dependent data (may be empty if no tasks exist yet)
+      const taskState = janeRuntime.listTasks();
+      const hasTasks = taskState.tasks.length > 0;
       let janeSession = {};
-      if (hasTrails) {
+      if (hasTasks) {
         try { setPanelState(configDir, { open: true }); } catch {}
         janeSession = janeRuntime.getSession();
         const legacyAdditionalInstructions = context.globalState.get('additionalInstructions', '');
@@ -51,7 +51,7 @@ async function handleTrailOp(msg, ctx) {
           janeSession = janeRuntime.setSessionInstructions(legacyAdditionalInstructions);
         }
       }
-      updatePanelTitle(panel, folderName, trailState.activeTrail && trailState.activeTrail.name);
+      updatePanelTitle(panel, folderName, taskState.activeTask && taskState.activeTask.name);
 
       panel.webview.postMessage({
         type: 'init',
@@ -64,8 +64,8 @@ async function handleTrailOp(msg, ctx) {
         bitacora: janeSession.bitacora || '',
         projectPrompt,
         session: janeSession,
-        trails: trailState.trails,
-        activeTrail: trailState.activeTrail,
+        tasks: taskState.tasks,
+        activeTask: taskState.activeTask,
         codingAgents,
         defaultCodingAgentId: pickDefaultCodingAgentId(codingAgents),
       });
@@ -89,77 +89,77 @@ async function handleTrailOp(msg, ctx) {
       janeRuntime.replaceSessionEntries(msg.entries || []);
       break;
     }
-    case 'janeTrailNew': {
+    case 'janeTaskNew': {
       suppressLocalSessionSync(configDir);
-      const result = janeRuntime.createTrail({ name: msg.name || '' });
-      updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+      const result = janeRuntime.createTask({ name: msg.name || '' });
+      updatePanelTitle(panel, folderName, result.activeTask && result.activeTask.name);
       panel.webview.postMessage({
-        type: 'trailState',
+        type: 'taskState',
         action: 'new',
         session: janeRuntime.getSession(),
-        trails: result.trails,
-        activeTrail: result.activeTrail,
+        tasks: result.tasks,
+        activeTask: result.activeTask,
       });
       break;
     }
-    case 'janeTrailFork': {
+    case 'janeTaskFork': {
       suppressLocalSessionSync(configDir);
-      const result = janeRuntime.forkTrail({
+      const result = janeRuntime.forkTask({
         name: msg.name || '',
-        sourceTrailId: msg.sourceTrailId || '',
+        sourceTaskId: msg.sourceTaskId || '',
       });
-      updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+      updatePanelTitle(panel, folderName, result.activeTask && result.activeTask.name);
       panel.webview.postMessage({
-        type: 'trailState',
+        type: 'taskState',
         action: 'fork',
         session: janeRuntime.getSession(),
-        trails: result.trails,
-        activeTrail: result.activeTrail,
+        tasks: result.tasks,
+        activeTask: result.activeTask,
       });
       break;
     }
-    case 'janeTrailSwitch': {
+    case 'janeTaskSwitch': {
       suppressLocalSessionSync(configDir);
-      const result = janeRuntime.switchTrail({ trailId: msg.trailId || '' });
-      updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+      const result = janeRuntime.switchTask({ taskId: msg.taskId || '' });
+      updatePanelTitle(panel, folderName, result.activeTask && result.activeTask.name);
       panel.webview.postMessage({
-        type: 'trailState',
+        type: 'taskState',
         action: 'switch',
         session: janeRuntime.getSession(),
-        trails: result.trails,
-        activeTrail: result.activeTrail,
+        tasks: result.tasks,
+        activeTask: result.activeTask,
       });
       break;
     }
-    case 'janeTrailRename': {
+    case 'janeTaskRename': {
       suppressLocalSessionSync(configDir);
-      const result = janeRuntime.renameTrail({
-        trailId: msg.trailId || '',
+      const result = janeRuntime.renameTask({
+        taskId: msg.taskId || '',
         name: msg.name || '',
       });
-      updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+      updatePanelTitle(panel, folderName, result.activeTask && result.activeTask.name);
       panel.webview.postMessage({
-        type: 'trailState',
+        type: 'taskState',
         action: 'rename',
         session: janeRuntime.getSession(),
-        trails: result.trails,
-        activeTrail: result.activeTrail,
+        tasks: result.tasks,
+        activeTask: result.activeTask,
       });
       break;
     }
-    case 'janeTrailDelete': {
+    case 'janeTaskDelete': {
       suppressLocalSessionSync(configDir);
       try {
-        const result = janeRuntime.deleteTrail({
-          trailId: msg.trailId || '',
+        const result = janeRuntime.deleteTask({
+          taskId: msg.taskId || '',
         });
-        updatePanelTitle(panel, folderName, result.activeTrail && result.activeTrail.name);
+        updatePanelTitle(panel, folderName, result.activeTask && result.activeTask.name);
         panel.webview.postMessage({
-          type: 'trailState',
+          type: 'taskState',
           action: 'delete',
           session: janeRuntime.getSession(),
-          trails: result.trails,
-          activeTrail: result.activeTrail,
+          tasks: result.tasks,
+          activeTask: result.activeTask,
         });
       } catch (err) {
         panel.webview.postMessage({ type: 'error', message: err.message });
@@ -179,16 +179,16 @@ async function handleTrailOp(msg, ctx) {
           }
         }
       }
-      const trailState = janeRuntime.listTrails();
-      const trailName = (trailState.activeTrail && trailState.activeTrail.name) || 'notebook';
-      const safeName = String(trailName).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const taskState = janeRuntime.listTasks();
+      const taskName = (taskState.activeTask && taskState.activeTask.name) || 'notebook';
+      const safeName = String(taskName).replace(/[^a-zA-Z0-9_\-]/g, '_');
       let content, filename;
       if (format === 'py') {
         content = exportToPython(allCells);
         filename = safeName + '.py';
       } else {
         const nb = exportToIpynb(allCells, {
-          selva: { trail: trailName },
+          selva: { task: taskName },
         });
         content = JSON.stringify(nb, null, 1);
         filename = safeName + '.ipynb';
@@ -239,4 +239,4 @@ async function handleTrailOp(msg, ctx) {
   }
 }
 
-module.exports = { handleTrailOp };
+module.exports = { handleTaskOp };

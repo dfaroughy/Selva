@@ -6,7 +6,7 @@ const path = require('path');
 const { disposeNotebookRuntimesForConfigDir } = require('../lib/notebook-execution');
 const { createWorkspaceRuntime } = require('../lib/selva-runtime');
 const { createJaneRuntime } = require('../lib/jane-runtime');
-const { clearJaneSession, createJaneTrail, setPanelState } = require('../lib/session-store');
+const { clearJaneSession, createJaneTask, setPanelState } = require('../lib/session-store');
 
 const extensionPath = path.resolve(__dirname, '..');
 
@@ -33,17 +33,17 @@ console.log('\n\x1b[1mJane Runtime\x1b[0m');
 test('lists canonical session-oriented Jane tools', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const toolNames = janeRuntime.listSessionTools().map((tool) => tool.name);
     assert.ok(toolNames.includes('jane_init'));
     assert.ok(toolNames.includes('jane_get_instruction_pack'));
-    assert.ok(toolNames.includes('jane_trail_list'));
-    assert.ok(toolNames.includes('jane_trail_new'));
-    assert.ok(toolNames.includes('jane_trail_fork'));
-    assert.ok(toolNames.includes('jane_trail_switch'));
-    assert.ok(toolNames.includes('jane_trail_rename'));
+    assert.ok(toolNames.includes('jane_task_list'));
+    assert.ok(toolNames.includes('jane_task_new'));
+    assert.ok(toolNames.includes('jane_task_fork'));
+    assert.ok(toolNames.includes('jane_task_switch'));
+    assert.ok(toolNames.includes('jane_task_rename'));
     assert.ok(toolNames.includes('jane_apply_ops'));
     assert.ok(toolNames.includes('jane_add_cells'));
     assert.ok(toolNames.includes('jane_update_cell'));
@@ -59,7 +59,7 @@ test('lists canonical session-oriented Jane tools', async () => {
 test('accepts legacy Jane tool aliases for session settings', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_set_model', { modelId: 'direct:gpt-4o' });
@@ -78,21 +78,21 @@ test('builds a compact init payload for fresh external agents', async () => {
   try {
     fs.writeFileSync(path.join(configDir, 'trainer.yaml'), 'trainer:\n  learning_rate: 0.1\n', 'utf8');
     fs.writeFileSync(path.join(configDir, 'submission.yaml'), 'name: figure\n', 'utf8');
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const init = await janeRuntime.handleSessionToolCall('jane_init');
     assert.strictEqual(init.configDir, configDir);
     assert.strictEqual(init.fileCount, 2);
     assert.strictEqual(init.needsBootstrap, true);
-    assert.ok(init.trailId);
-    assert.ok(init.trailName);
-    assert.ok(Array.isArray(init.trails));
-    assert.strictEqual(init.trailCount, 1);
+    assert.ok(init.taskId);
+    assert.ok(init.taskName);
+    assert.ok(Array.isArray(init.tasks));
+    assert.strictEqual(init.taskCount, 1);
     assert.ok(Array.isArray(init.availableTools.jane));
     assert.ok(init.availableTools.jane.includes('jane_init'));
     assert.ok(init.availableTools.jane.includes('jane_get_instruction_pack'));
-    assert.ok(init.availableTools.jane.includes('jane_trail_new'));
+    assert.ok(init.availableTools.jane.includes('jane_task_new'));
     assert.ok(init.availableTools.dashboardOps.includes('setValue'));
     assert.ok(init.availableTools.workspace.some((t) => t.name === 'set_value'));
     assert.ok(init.dashboardState.lockedFieldCount <= 2);
@@ -102,35 +102,35 @@ test('builds a compact init payload for fresh external agents', async () => {
   }
 });
 
-test('jane trail tools create and switch fresh notebook lineages', async () => {
+test('jane task tools create and switch fresh notebook lineages', async () => {
   const configDir = mkTmpDir();
   try {
     fs.writeFileSync(path.join(configDir, 'trainer.yaml'), 'trainer:\n  learning_rate: 0.1\n', 'utf8');
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_add_cells', {
-      question: 'first trail note',
+      question: 'first task note',
       cells: [{ type: 'markdown', content: 'hello' }],
     });
-    const originalTrailId = janeRuntime.getSession().trailId;
+    const originalTaskId = janeRuntime.getSession().taskId;
 
-    const created = await janeRuntime.handleSessionToolCall('jane_trail_new', { name: 'Fresh Trail' });
+    const created = await janeRuntime.handleSessionToolCall('jane_task_new', { name: 'Fresh Task' });
     assert.strictEqual(created.ok, true);
-    assert.strictEqual(created.activeTrail.name, 'Fresh Trail');
+    assert.strictEqual(created.activeTask.name, 'Fresh Task');
     assert.strictEqual(created.needsBootstrap, true);
     assert.strictEqual(janeRuntime.getSession().entries.length, 0);
 
-    const renamed = await janeRuntime.handleSessionToolCall('jane_trail_rename', {
-      trailId: created.activeTrail.id,
-      name: 'Renamed Trail',
+    const renamed = await janeRuntime.handleSessionToolCall('jane_task_rename', {
+      taskId: created.activeTask.id,
+      name: 'Renamed Task',
     });
     assert.strictEqual(renamed.ok, true);
-    assert.strictEqual(renamed.activeTrail.name, 'Renamed Trail');
+    assert.strictEqual(renamed.activeTask.name, 'Renamed Task');
 
-    const switched = await janeRuntime.handleSessionToolCall('jane_trail_switch', { trailId: originalTrailId });
+    const switched = await janeRuntime.handleSessionToolCall('jane_task_switch', { taskId: originalTaskId });
     assert.strictEqual(switched.ok, true);
-    assert.strictEqual(janeRuntime.getSession().trailId, originalTrailId);
+    assert.strictEqual(janeRuntime.getSession().taskId, originalTaskId);
     assert.strictEqual(janeRuntime.getSession().entries.length, 1);
   } finally {
     cleanup(configDir);
@@ -141,7 +141,7 @@ test('builds a shared Jane instruction pack for external agents', async () => {
   const configDir = mkTmpDir();
   try {
     fs.writeFileSync(path.join(configDir, 'trainer.yaml'), 'trainer:\n  learning_rate: 0.1\n', 'utf8');
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_session_set_instructions', { text: 'Keep answers compact.' });
@@ -167,7 +167,7 @@ test('jane_init stays compact even when the session contains many locked fields'
       'dependent_variables:\n  - header:\n      name: y\n    values:\n      - value: 1\n      - value: 2\n',
       'utf8'
     );
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.bootstrapSessionDeterministically();
@@ -189,7 +189,7 @@ test('bootstrap falls back to deterministic workspace setup when no model provid
       'dependent_variables:\n  - header:\n      name: y\n    values:\n      - value: 1\n',
       'utf8'
     );
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const result = await janeRuntime.handleSessionToolCall('jane_session_bootstrap', {}, {
@@ -213,7 +213,7 @@ test('bootstrap falls back to deterministic workspace setup when no model provid
 test('clears persisted Jane session state through the canonical API', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     await janeRuntime.handleSessionToolCall('jane_session_set_model', { modelId: 'direct:gpt-4o-mini' });
@@ -231,7 +231,7 @@ test('clears persisted Jane session state through the canonical API', async () =
 test('records an external notebook entry into the Jane session', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const result = await janeRuntime.handleSessionToolCall('jane_session_record_entry', {
@@ -263,7 +263,7 @@ test('records an external notebook entry into the Jane session', async () => {
 test('jane_session_record_entry accepts executedCells passed as a JSON string', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const result = await janeRuntime.handleSessionToolCall('jane_session_record_entry', {
@@ -291,7 +291,7 @@ test('jane_session_record_entry accepts executedCells passed as a JSON string', 
 test('jane_add_cells accepts cells passed as a JSON string', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const result = await janeRuntime.handleSessionToolCall('jane_add_cells', {
@@ -314,7 +314,7 @@ test('jane_apply_ops persists config changes when no panel is open', async () =>
   const configDir = mkTmpDir();
   try {
     fs.writeFileSync(path.join(configDir, 'trainer.yaml'), 'trainer:\n  learning_rate: 0.2\n', 'utf8');
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     const result = await janeRuntime.handleSessionToolCall('jane_apply_ops', {
@@ -332,7 +332,7 @@ test('jane_apply_ops persists config changes when no panel is open', async () =>
 test('jane_add_cells and jane_update_cell mutate notebook cells by stable ids', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
     setPanelState(configDir, { open: true });
@@ -381,7 +381,7 @@ test('jane_add_cells and jane_update_cell mutate notebook cells by stable ids', 
 test('jane_add_cells auto-executes python notebook cells that arrive without output', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
 
@@ -405,7 +405,7 @@ test('jane_add_cells auto-executes python notebook cells that arrive without out
 test('jane_session_record_entry re-executes python cells when output is only a plot placeholder', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
 
@@ -433,7 +433,7 @@ test('jane_session_record_entry re-executes python cells when output is only a p
 test('jane_session_record_entry re-executes python cells when output is [plot generated]', async () => {
   const configDir = mkTmpDir();
   try {
-    createJaneTrail(configDir);
+    createJaneTask(configDir);
     const workspaceRuntime = createWorkspaceRuntime({ configDir, extensionPath });
     const janeRuntime = createJaneRuntime({ configDir, extensionPath, workspaceRuntime });
 

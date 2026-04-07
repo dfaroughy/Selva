@@ -84,7 +84,7 @@ Exploratory data analysis on a dataset.
 def run(file_path, target_column=None):
     """
     Parameters are injected from the skill call.
-    This function runs in the Trail's Python kernel (stateful).
+    This function runs in the Task's Python kernel (stateful).
     """
     import numpy as np
     import pandas as pd
@@ -164,7 +164,7 @@ When Jane recognizes a skill trigger, she:
 1. Reads the full `SKILL.md` for context
 2. Reads `skill.py` for the implementation
 3. Adapts the parameters to the current workspace (fills in file paths, column names, etc.)
-4. Executes the adapted code via `execute_python` in the Trail kernel
+4. Executes the adapted code via `execute_python` in the Task kernel
 5. Records the results in the notebook via `jane_add_cells`
 
 Jane doesn't blindly run `skill.py` — she *uses it as a template*. She might modify it, skip steps, or add steps based on the researcher's specific request. The skill is a starting point, not a rigid script.
@@ -283,6 +283,6 @@ Selva/
 
 {workspace}/
   .selva/
-    trails/                 # trail data
+    tasks/                 # task data
     skills/                 # workspace-local skills
 ```

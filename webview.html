@@ -62,7 +62,7 @@
   <!-- Three-panel dashboard layout -->
   <div id="dashboard-panels">
     <!-- Project Panel -->
-    <div class="dash-panel" id="trails-panel">
+    <div class="dash-panel" id="tasks-panel">
       <div class="dash-panel-header" data-action="toggle-panel">
         <span class="dash-panel-chevron">&#9662;</span>
         <span class="dash-panel-title">
@@ -76,7 +76,7 @@
       </div>
       <div class="dash-panel-body">
         <div class="project-panel-body">
-          <canvas id="trail-graph" width="600" height="200"></canvas>
+          <canvas id="task-graph" width="600" height="200"></canvas>
           <div class="project-export-row">
             <button class="editor-export-btn" id="export-project-btn"><svg class="nb-export-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="1" width="12" height="14" rx="1.5"/><path d="M5 4.5h6M5 7.5h6M5 10.5h4"/></svg> Export Project</button>
           </div>
@@ -85,7 +85,7 @@
               <span class="sysprompt-title">Project Prompt</span>
               <button class="btn sysprompt-reset-btn" id="project-prompt-reset" title="Clear">Clear</button>
             </div>
-            <textarea id="project-prompt-editor" spellcheck="false" placeholder="Research project instructions shared across all trails."></textarea>
+            <textarea id="project-prompt-editor" spellcheck="false" placeholder="Research project instructions shared across all tasks."></textarea>
           </div>
         </div>
         <div id="agent-sysprompt-panel" class="project-prompts">
@@ -95,7 +95,7 @@
                 <span class="sysprompt-title">Instructions</span>
                 <button class="btn sysprompt-reset-btn" id="sysprompt-reset" title="Clear">Clear</button>
               </div>
-              <textarea id="sysprompt-editor" spellcheck="false" placeholder="Standing instructions for Jane on this trail."></textarea>
+              <textarea id="sysprompt-editor" spellcheck="false" placeholder="Standing instructions for Jane on this task."></textarea>
             </div>
             <div class="sysprompt-col">
               <div class="sysprompt-header">
@@ -113,13 +113,13 @@
       <div class="dash-panel-header" data-action="toggle-panel">
         <span class="dash-panel-chevron">&#9662;</span>
         <span class="dash-panel-title">
-          <svg class="notebook-trail-logo" width="18" height="14" viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg class="notebook-task-logo" width="18" height="14" viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 16C4 16 6 10 12 10C18 10 20 16 20 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             <path d="M2 12C2 12 5 4 12 2C19 4 22 12 22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
           </svg>
           notebook
         </span>
-        <span id="notebook-trail-name" class="notebook-trail-name-label">--</span>
+        <span id="notebook-task-name" class="notebook-task-name-label">--</span>
         <div class="notebook-header-toolbar ml-auto">
           <div class="notebook-add-wrap">
             <button class="btn notebook-toolbar-btn" id="notebook-add-btn" title="Add cell" onclick="event.stopPropagation()">+</button>

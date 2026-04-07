@@ -22,7 +22,7 @@ async function handleAgentOp(msg, ctx) {
           configDir,
           sessionInstructions,
           panel,
-          trailId: msg.trailId || activeSession.trailId || '',
+          taskId: msg.taskId || activeSession.taskId || '',
         });
 
         panel.webview.postMessage({

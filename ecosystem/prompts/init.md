@@ -27,7 +27,7 @@ For numeric fields, set sensible ranges based on context:
 Use setSliderBounds and setSliderLogScale if available. Create them with propose_tool if not.
 
 ── STEP 4: WRITE THE BITÁCORA ──
-Write the initial Bitácora — a concise workspace identity that will persist across all future turns in this Trail. Include:
+Write the initial Bitácora — a concise workspace identity that will persist across all future turns in this Task. Include:
 - What this workspace is about (1-2 sentences describing the project)
 - Domain and project stage
 - Key parameters and entities to watch
